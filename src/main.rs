@@ -1,48 +1,43 @@
 use std::{thread, time};
-use crossbeam_channel::{unbounded, Sender, Receiver};
+use crossbeam_channel::{unbounded, Sender};//, Receiver};
+
+#[derive(Debug)]
+struct Func<T> {
+  func: fn(T),
+  arg: T,
+}
 
 //#[derive(Debug)]
 struct Worker {
-  send : Sender<i32>,
+  send : Sender<Func<i32>>,
   //recv : Receiver<i32>,
 }
 
 impl Worker {
   pub fn new() -> Worker {
-    let (send, recv) = unbounded();
+    let (send, recv) = unbounded::<Func<i32>>();
     thread::spawn(move || {
       //loop {
       for _ in 0..5 {
         let msg = recv.recv().unwrap();
-        println!("Received {}", msg);
+        println!("Received {:?}", msg);
+        (msg.func)(msg.arg);
       }
     });
     Worker{send}
   }
 
-  //fn print_hello() { println!("hello"); }
-
-  //struct Process() {}
-
-  //struct PrintHello() {}
-
-  //impl PrintHello {
-  //  fn process() { print_hello(); }
-  //}
+  pub fn print_hello(i: i32) { println!("hello {}", i); }
 }
 
 fn main() {
   let w1 = Worker::new();
-  //println!("{}", w1.send);
-  //w1.subscribe();
-  //a.a = 6;
-  //w1.start();
 
   for i in 0..5 {
-    w1.send.send(i).unwrap();
+    let func = Func {func: Worker::print_hello, arg: i};
+    w1.send.send(func).unwrap();
     thread::sleep(time::Duration::from_millis(250));
   }
-
 
   //crossbeam::scope(|s| {
   //  s.spawn(|_| {
