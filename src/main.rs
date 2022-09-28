@@ -27,15 +27,18 @@ impl Worker {
     Worker{send}
   }
 
-  pub fn print_hello(i: i32) { println!("hello {}", i); }
+  fn print_hello_helper(i: i32) { println!("hello {}", i); }
+  pub fn print_hello(&self, i: i32) {
+    let func = Func {func: Worker::print_hello_helper, arg: i};
+    self.send.send(func).unwrap();
+  }
 }
 
 fn main() {
   let w1 = Worker::new();
 
   for i in 0..5 {
-    let func = Func {func: Worker::print_hello, arg: i};
-    w1.send.send(func).unwrap();
+    w1.print_hello(i);
     thread::sleep(time::Duration::from_millis(250));
   }
 
