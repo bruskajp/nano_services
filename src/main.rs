@@ -2,13 +2,13 @@ use std::{thread, time};
 use crossbeam_channel::{unbounded, Sender};//, Receiver};
 
 struct Func {
-  //func: fn(T),
+  func: fn(&Worker),
   data: Box<dyn Fn(&Worker, fn(&Worker)) + Send>,
 }
 
 impl Func {
-  fn invoke(&self, worker: &Worker, func: fn(&Worker)) {
-        (self.data)(worker, func)
+  fn invoke(&self, worker: &Worker) {
+        (self.data)(worker, self.func)
   }
 }
 
@@ -20,7 +20,7 @@ struct WorkerController {
 impl WorkerController {
   pub fn print_hello(&self, i: i32) {
     let x = move |worker: &Worker, func: fn(&Worker)| {func(worker);};
-    let func = Func {data: Box::new(x)};
+    let func = Func {func: Worker::print_hello_helper, data: Box::new(x)};
     self.send.send(func).unwrap();
   }
 }
@@ -39,7 +39,7 @@ impl Worker {
         let msg = recv.recv().unwrap();
         //println!("Received {:?}", msg);
         //(msg.func)(msg.arg);
-        msg.invoke(&worker, Worker::print_hello_helper);
+        msg.invoke(&worker);
       }
     });
     WorkerController{send}
