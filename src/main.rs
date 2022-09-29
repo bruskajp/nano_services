@@ -1,37 +1,52 @@
 use std::{thread, time};
 use crossbeam_channel::{unbounded, Sender};//, Receiver};
 
-#[derive(Debug)]
-struct Func<T> {
-  func: fn(T),
-  arg: T,
+struct Func {
+  //func: fn(T),
+  data: Box<dyn Fn(&Worker, fn(&Worker)) + Send>,
 }
 
-//#[derive(Debug)]
-struct Worker {
-  send : Sender<Func<i32>>,
+impl Func {
+  fn invoke(&self, worker: &Worker, func: fn(&Worker)) {
+        (self.data)(worker, func)
+  }
+}
+
+struct WorkerController {
+  send : Sender<Func>,
   //recv : Receiver<i32>,
 }
 
+impl WorkerController {
+  pub fn print_hello(&self, i: i32) {
+    let x = move |worker: &Worker, func: fn(&Worker)| {func(worker);};
+    let func = Func {data: Box::new(x)};
+    self.send.send(func).unwrap();
+  }
+}
+
+struct Worker {
+  //a : i32,
+}
+
 impl Worker {
-  pub fn new() -> Worker {
-    let (send, recv) = unbounded::<Func<i32>>();
+  pub fn new() -> WorkerController {
+    let (send, recv) = unbounded::<Func>();
+    let worker = Worker{};
     thread::spawn(move || {
       //loop {
       for _ in 0..5 {
         let msg = recv.recv().unwrap();
-        println!("Received {:?}", msg);
-        (msg.func)(msg.arg);
+        //println!("Received {:?}", msg);
+        //(msg.func)(msg.arg);
+        msg.invoke(&worker, Worker::print_hello_helper);
       }
     });
-    Worker{send}
+    WorkerController{send}
   }
 
-  fn print_hello_helper(i: i32) { println!("hello {}", i); }
-  pub fn print_hello(&self, i: i32) {
-    let func = Func {func: Worker::print_hello_helper, arg: i};
-    self.send.send(func).unwrap();
-  }
+  //fn print_hello_helper(&self, i: i32) { println!("hello {}", i); }
+  fn print_hello_helper(&self) { println!("hello {}", 1); }
 }
 
 fn main() {
