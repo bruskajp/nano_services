@@ -1,60 +1,75 @@
-use std::{thread, time};
+use std::{thread};//, time};
 use crossbeam_channel::{unbounded, Sender};//, Receiver};
+use std::cell::RefCell;
 
-enum Funcs {
+// JPB: TODO: Make this private
+struct Thingy {
+  a: RefCell<i32>,
+}
+
+impl Thingy {
+  pub fn new(i: i32) -> Thingy { Thingy{a: RefCell::new(i)} }
+  pub fn print_a(&self) { println!("a = {}", self.a.borrow()); }
+  //pub fn inc_a(&self, i: i32) { let x = self.a.borrow_mut(); x += i; }
+  pub fn inc_a(&self, i: i32) { self.a.replace_with(|&mut old| old + i); }
+  pub fn print_hello() { println!("Hello"); }
+}
+
+enum ThingyFuncs {
+  // Internal commands
+  ThingyWorkerQuit(),
+
+  // Function duplicates
+  PrintA(),
+  IncA(i32),
   PrintHello(),
-  PrintInt(i32),
 }
 
-struct WorkerController {
-  send : Sender<Funcs>,
-  //recv : Receiver<i32>,
-}
-
-impl WorkerController {
-  pub fn print_hello(&self, i: i32) {
-    self.send.send(Funcs::PrintInt(i)).unwrap();
-  }
-}
-
-struct Worker {
-  //a : i32,
-}
-
-impl Worker {
-  pub fn new() -> WorkerController {
-    let (send, recv) = unbounded::<Funcs>();
-    let worker = Worker{};
-    thread::spawn(move || {
-      //loop {
-      for _ in 0..5 {
+struct ThingyWorker {}
+impl ThingyWorker {
+  pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
+    let (send, recv) = unbounded::<ThingyFuncs>();
+    let thingy = Thingy::new(i);
+    let handle = thread::spawn(move || {
+      loop {
         match recv.recv().unwrap() {
-          Funcs::PrintHello() => worker.print_hello_original(42),
-          Funcs::PrintInt(i) => worker.print_hello_original(i),
+          ThingyFuncs::ThingyWorkerQuit() => break,
+          ThingyFuncs::PrintA() => thingy.print_a(),
+          ThingyFuncs::IncA(i) => thingy.inc_a(i),
+          ThingyFuncs::PrintHello() => Thingy::print_hello(),
         }
       }
     });
-    WorkerController{send}
+    (handle, ThingyController{send})
   }
+}
 
-  //fn print_hello_original(&self, i: i32) { println!("hello {}", i); }
-  fn print_hello_original(&self, i: i32) { println!("hello {}", i); }
+struct ThingyController {
+  send: Sender<ThingyFuncs>,
+}
+
+impl ThingyController {
+  pub fn print_a(&self) {
+    self.send.send(ThingyFuncs::PrintA()).unwrap();
+  }
+  pub fn inc_a(&self, i: i32) {
+    self.send.send(ThingyFuncs::IncA(i)).unwrap();
+  }
+  pub fn print_hello(&self) {
+    self.send.send(ThingyFuncs::PrintHello()).unwrap();
+  }
 }
 
 fn main() {
-  let w1 = Worker::new();
+  let (handle, thingy) = ThingyWorker::new(-1);
 
-  for i in 0..5 {
-    w1.print_hello(i);
-    thread::sleep(time::Duration::from_millis(250));
-  }
+  //thread::sleep(time::Duration::from_millis(500));
 
-  //crossbeam::scope(|s| {
-  //  s.spawn(|_| {
-  //    for i in 0..5 {
-  //      w1.send.send(i).unwrap();
-  //      thread::sleep(time::Duration::from_millis(250));
-  //    }
-  //  });
-  //}).unwrap();
+  thingy.print_hello();
+  thingy.print_a();
+  thingy.inc_a(5);
+  thingy.print_a();
+  thingy.send.send(ThingyFuncs::ThingyWorkerQuit()).unwrap();
+
+  handle.join().unwrap();
 }
