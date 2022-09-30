@@ -25,23 +25,23 @@ enum ThingyFuncs {
 
   // Function duplicates
   PrintA(),
-  IncA(Box<i32>),
-  IncATwice(Box<i32>, Box<i32>),
+  IncA(i32),
+  IncATwice(i32, i32),
   PrintHello(),
 }
 
 struct ThingyWorker;
 impl ThingyWorker {
   pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
-    let (send, recv) = unbounded::<ThingyFuncs>();
+    let (send, recv) = unbounded::<Box<ThingyFuncs>>();
     let thingy = Thingy::new(i);
     let handle = thread::spawn(move || {
       loop {
-        match recv.recv().unwrap() {
+        match *recv.recv().unwrap() {
           ThingyFuncs::ThingyWorkerQuit() => break,
           ThingyFuncs::PrintA() => thingy.print_a(),
-          ThingyFuncs::IncA(i) => thingy.inc_a(*i),
-          ThingyFuncs::IncATwice(i, j) => thingy.inc_a_twice(*i, *j),
+          ThingyFuncs::IncA(i) => thingy.inc_a(i),
+          ThingyFuncs::IncATwice(i, j) => thingy.inc_a_twice(i, j),
           ThingyFuncs::PrintHello() => Thingy::print_hello(),
         }
       }
@@ -51,27 +51,27 @@ impl ThingyWorker {
 }
 
 struct ThingyController {
-  send: Sender<ThingyFuncs>,
+  send: Sender<Box<ThingyFuncs>>,
 }
 
 impl ThingyController {
   // Internal commands
   pub fn controller_stop_thread(&self) {
-    self.send.send(ThingyFuncs::ThingyWorkerQuit()).unwrap();
+    self.send.send(Box::new(ThingyFuncs::ThingyWorkerQuit())).unwrap();
   }
 
   // Function duplicates
   pub fn print_a(&self) {
-    self.send.send(ThingyFuncs::PrintA()).unwrap();
+    self.send.send(Box::new(ThingyFuncs::PrintA())).unwrap();
   }
   pub fn inc_a(&self, i: i32) {
-    self.send.send(ThingyFuncs::IncA(Box::new(i))).unwrap();
+    self.send.send(Box::new(ThingyFuncs::IncA(i))).unwrap();
   }
   pub fn inc_a_twice(&self, i: i32, j: i32) {
-    self.send.send(ThingyFuncs::IncATwice(Box::new(i), Box::new(j))).unwrap();
+    self.send.send(Box::new(ThingyFuncs::IncATwice(i, j))).unwrap();
   }
   pub fn print_hello(&self) {
-    self.send.send(ThingyFuncs::PrintHello()).unwrap();
+    self.send.send(Box::new(ThingyFuncs::PrintHello())).unwrap();
   }
 }
 
