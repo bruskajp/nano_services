@@ -75,11 +75,15 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   //let name = &input.ident;
   let name = "Worker";
 
+  // Generate WorkerFuncs Enum
   let mut enum_output = Vec::new();
   enum_output.push(format!("enum {name}Funcs {{"));
   enum_output.push(format!("WorkerQuit(),"));
 
+  // Generate Struct ThingyWorker
+  let worker_struct_output = "struct ThingyWorker;";
 
+  // Walk through original Impl functions
   input
   .items.iter().for_each(|item| {
     match item {
@@ -97,16 +101,29 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               types_to_string(&a.sig.inputs),
             ));
           }
+
+
+
+          // JPB: TODO: Generate Impl ThingyWorker
+
+          // JPB: TODO: Generate Struct ThingyController
+
+          // JPB: TODO: Generate Impl ThingyController
         }
       _ => { println!("INVALID_FUNCTION_TYPE"); }
     }
   });
 
+  // Generate WorkerFuncs Enum
   enum_output.push(format!("}}"));
 
   println!("----------------------------");
 
-  format!("{}\n{}", item, enum_output.join("\n")).parse().expect("Generated invalid tokens")
+  format!("{}\n\n{}\n\n{}\n\n",
+    item,
+    enum_output.join("\n"),
+    worker_struct_output
+  ).parse().expect("Generated invalid tokens")
 }
 
 

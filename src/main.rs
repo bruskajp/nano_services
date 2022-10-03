@@ -12,10 +12,10 @@ extern crate my_macro;
 
 // JPB: TODO: Make this private
 #[intro]
-//#[rename(name = "Thingy2", prefix = "")]
 struct Thingy {
   a: RefCell<i32>,
 }
+
 #[worker]
 impl Thingy {
   pub fn new(i: i32) -> Thingy { Thingy{a: RefCell::new(i)} }
@@ -25,7 +25,6 @@ impl Thingy {
   pub fn inc_a_twice(&self, i: i32, j: i32) { self.a.replace_with(|&mut old| old + i + j); }
   pub fn print_hello() { println!("Hello"); }
 }
-
 
 //enum WorkerFuncs {
 //  // Internal commands
@@ -38,7 +37,7 @@ impl Thingy {
 //  PrintHello(),
 //}
 
-struct ThingyWorker;
+//struct ThingyWorker;
 impl ThingyWorker {
   pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
     let (send, recv) = unbounded::<Box<WorkerFuncs>>();
