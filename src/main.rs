@@ -34,28 +34,26 @@ impl Thingy {
 //  PrintA(),
 //  IncA(i32),
 //  IncATwice(i32, i32),
-//  PrintHello(),
 //}
 
 //struct ThingyWorker;
-impl ThingyWorker {
-  pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
-    let (send, recv) = unbounded::<Box<WorkerFuncs>>();
-    let thingy = Thingy::new(i);
-    let handle = thread::spawn(move || {
-      loop {
-        match *recv.recv().unwrap() {
-          WorkerFuncs::WorkerQuit() => break,
-          WorkerFuncs::PrintA() => thingy.print_a(),
-          WorkerFuncs::IncA(i) => thingy.inc_a(i),
-          WorkerFuncs::IncATwice(i, j) => thingy.inc_a_twice(i, j),
-          //WorkerFuncs::PrintHello() => Thingy::print_hello(),
-        }
-      }
-    });
-    (handle, ThingyController{send})
-  }
-}
+//impl ThingyWorker {
+//  pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
+//    let (send, recv) = unbounded::<Box<WorkerFuncs>>();
+//    let thingy = Thingy::new(i);
+//    let handle = thread::spawn(move || {
+//      loop {
+//        match *recv.recv().unwrap() {
+//          WorkerFuncs::WorkerQuit() => break,
+//          WorkerFuncs::PrintA() => thingy.print_a(),
+//          WorkerFuncs::IncA(i) => thingy.inc_a(i),
+//          WorkerFuncs::IncATwice(i, j) => thingy.inc_a_twice(i, j),
+//        }
+//      }
+//    });
+//    (handle, ThingyController{send})
+//  }
+//}
 
 //struct ThingyController {
 //  send: Sender<Box<WorkerFuncs>>,

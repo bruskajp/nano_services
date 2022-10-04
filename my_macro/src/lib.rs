@@ -8,6 +8,9 @@ use syn::*;
 use convert_case::{Case, Casing};
 
 // Must use this until "proc_macro_quote" becomes stable
+// At which point replace to_token_stream() with quote!(#method).to_string(); 
+// Or convert this whole thing into using Tokens entirely
+// This can be done slowly by still using to_token_stream in intermediate steps
 use syn::__private::ToTokens; 
 
 
@@ -23,13 +26,13 @@ use syn::__private::ToTokens;
 // https://blog.logrocket.com/macros-in-rust-a-tutorial-with-examples/#customderivemacros
 
 // print type of variable
-fn print_type_of<T>(_: &T) -> String {
-  format!("{}", std::any::type_name::<T>())
-}
+//fn print_type_of<T>(_: &T) -> String {
+//  format!("{}", std::any::type_name::<T>())
+//}
 
 // ------------------------------------
 
-
+// JPB: TODO: Rename
 fn types_to_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> String {
   inputs.pairs().fold(String::new(), |cur, next| {
     let symbols = match next.value() {
@@ -129,7 +132,13 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let worker_struct_output = format!("struct {name}Worker;");
 
   // JPB: TODO: Generate Impl Worker
-  let worker_impl_output = format!("impl {name}Worker {{ }}");
+  let mut worker_impl_output = Vec::new();
+  worker_impl_output.push(format!("impl {name}Worker {{"));
+
+  let mut worker_impl_new_intro = Vec::new();
+  let mut worker_impl_new_match = Vec::new();
+  let mut worker_impl_new_outro = Vec::new();
+
 
   // Generate Struct Controller
   let controller_struct_output = format!("struct {name}Controller {{\nsend: Sender<Box<WorkerFuncs>>,\n}}");
@@ -141,17 +150,12 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).unwrap();"));
   controller_impl_output.push(format!("}}"));
 
+
   // Walk through original Impl functions
   input
   .items.iter().for_each(|item| {
     match item {
       ImplItem::Method(method) => {
-          // Print Info About types
-          //println!("{}({})", 
-          //  a.sig.ident,
-          //  types_to_string(&a.sig.inputs),
-          //);
- 
           match method.vis { // Only expose public functions
             Visibility::Public(_) => {
               // Generate WorkerFuncs Enum
@@ -162,12 +166,42 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 ));
               }
 
-              // JPB: TODO: Generate Impl ThingyWorker
-              
+              // Generate Impl ThingyWorker
+              if method.sig.ident == "new" {
+                worker_impl_new_intro.push(format!("pub fn new({}) -> (thread::JoinHandle<()>, {}Controller) {{",
+                  method.sig.inputs.to_token_stream().to_string(),
+                  name
+                ));
+                worker_impl_new_intro.push(format!("let (send, recv) = unbounded::<Box<WorkerFuncs>>();"));
+                worker_impl_new_intro.push(format!("let {} = {}::new({});",
+                  name.to_case(Case::Camel),
+                  name,
+                  params_to_args_string(&method.sig.inputs)
+                ));
+                worker_impl_new_intro.push(format!("let handle = thread::spawn(move || {{"));
+                worker_impl_new_intro.push(format!("loop {{"));
+                worker_impl_new_intro.push(format!("match *recv.recv().unwrap() {{"));
+                
+                worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
+
+                worker_impl_new_outro.push(format!(""));
+                worker_impl_new_outro.push(format!("}}"));
+                worker_impl_new_outro.push(format!("}}"));
+                worker_impl_new_outro.push(format!("}});"));
+                worker_impl_new_outro.push(format!("(handle, {}Controller {{ send }})", name));
+                worker_impl_new_outro.push(format!("}}"));
+              } else if !is_static_method(&method.sig.inputs) {
+                worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
+                  method.sig.ident.to_string().to_case(Case::UpperCamel),
+                  params_to_args_string(&method.sig.inputs),
+                  name.to_case(Case::Camel),
+                  method.sig.ident.to_string(),
+                  params_to_args_string(&method.sig.inputs)
+                ));
+              }
 
               // Generate Impl ThingyController
               if method.sig.ident != "new" && !is_static_method(&method.sig.inputs) {
-                //controller_impl_output.push(quote!(#method).to_string());
                 controller_impl_output.push(format!("pub {} {{\nself.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();\n}}",
                   method.sig.to_token_stream().to_string(),
                   method.sig.ident.to_string().to_case(Case::UpperCamel),
@@ -185,7 +219,13 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   // Generate WorkerFuncs Enum
   enum_output.push(format!("}}"));
 
-  // Generate Impl ThingyController
+  // Generate Impl Worker
+  worker_impl_output.push(worker_impl_new_intro.join("\n"));
+  worker_impl_output.push(worker_impl_new_match.join("\n"));
+  worker_impl_output.push(worker_impl_new_outro.join("\n"));
+  worker_impl_output.push(format!("}}"));
+
+  // Generate Impl Controller
   controller_impl_output.push(format!("}}"));
 
   println!("----------------------------");
@@ -194,7 +234,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item,
     enum_output.join("\n"),
     worker_struct_output,
-    worker_impl_output,
+    worker_impl_output.join("\n"),
     controller_struct_output,
     controller_impl_output.join("\n")
   ).parse().expect("Generated invalid tokens")
@@ -226,13 +266,7 @@ pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
     "#
   );
 
-  // Return output TokenStream so your custom derive behavior will be attached.
-  //let output: proc_macro::TokenStream = output.parse().unwrap();
-  //_input + ""
-  //_input + TokenStream(output.parse().expect("Generated invalid tokens"))
   output.parse().expect("Generated invalid tokens")
-  
-  //"".parse().expect("Generated invalid tokens")
 }
 
 
