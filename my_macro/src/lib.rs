@@ -7,6 +7,9 @@ use proc_macro::*;
 use syn::*;
 use convert_case::{Case, Casing};
 
+// Must use this until "proc_macro_quote" becomes stable
+use syn::__private::ToTokens; 
+
 
 // ------------------------------------
 // HELPFUL STUFF
@@ -66,6 +69,48 @@ fn types_to_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::
   })
 }
 
+fn params_to_args_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> String {
+  inputs.pairs().fold(String::new(), |cur, next| {
+    //println!("{:#?}", next.value());
+    let symbols = match next.value() {
+      FnArg::Receiver(_) => { "".to_string() },
+      FnArg::Typed(ty) => match &*ty.pat {
+        Pat::Ident(ident) => {ident.ident.to_string()},
+        _ => "INVALID_TYPE_IN_FUNCTION_ARGS".to_string(),
+        //Type::Array(_) => {format!("1")},
+        //Type::BareFn(_) => {format!("2")},
+        //Type::Group(_) => {format!("3")},
+        //Type::ImplTrait(_) => {format!("4")},
+        //Type::Infer(_) => {format!("5")},
+        //Type::Macro(_) => {format!("6")},
+        //Type::Never(_) => {format!("7")},
+        //Type::Paren(_) => {format!("8")},
+        //Type::Ptr(_) => {format!("10")},
+        //Type::Reference(_) => {format!("11")},
+        //Type::Slice(_) => {format!("12")},
+        //Type::TraitObject(_) => {format!("13")},
+        //Type::Tuple(_) => {format!("14")},
+        //Type::Verbatim(_) => {format!("15")},
+      }
+    };
+
+    if cur.is_empty() {
+      symbols
+    } else {
+      cur + ", " + &symbols
+    }
+  })
+}
+
+fn is_static_method(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> bool {
+  inputs.pairs().fold(true, |cur, next| {
+    cur && match next.value() {
+      FnArg::Receiver(_) => false,
+      FnArg::Typed(_) => true,
+    }
+  })
+}
+
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
@@ -73,42 +118,65 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
   //println!("{}", match *input.self_ty { Type::ImplTrait(a) => {a}, _ => TypeImplTrait() });
   //let name = &input.ident;
-  let name = "Worker";
+  let name = "Thingy"; // JPB: TODO: Get actual name of the class
 
   // Generate WorkerFuncs Enum
   let mut enum_output = Vec::new();
-  enum_output.push(format!("enum {name}Funcs {{"));
+  enum_output.push(format!("enum WorkerFuncs {{"));
   enum_output.push(format!("WorkerQuit(),"));
 
-  // Generate Struct ThingyWorker
-  let worker_struct_output = "struct ThingyWorker;";
+  // Generate Struct Worker
+  let worker_struct_output = format!("struct {name}Worker;");
+
+  // JPB: TODO: Generate Impl Worker
+  let worker_impl_output = format!("impl {name}Worker {{ }}");
+
+  // Generate Struct Controller
+  let controller_struct_output = format!("struct {name}Controller {{\nsend: Sender<Box<WorkerFuncs>>,\n}}");
+
+  // Generate Impl Controller
+  let mut controller_impl_output = Vec::new();
+  controller_impl_output.push(format!("impl {name}Controller {{"));
+  controller_impl_output.push(format!("pub fn controller_stop_thread(&self) {{"));
+  controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).unwrap();"));
+  controller_impl_output.push(format!("}}"));
 
   // Walk through original Impl functions
   input
   .items.iter().for_each(|item| {
     match item {
-      ImplItem::Method(a) => {
+      ImplItem::Method(method) => {
           // Print Info About types
           //println!("{}({})", 
           //  a.sig.ident,
           //  types_to_string(&a.sig.inputs),
           //);
+ 
+          match method.vis { // Only expose public functions
+            Visibility::Public(_) => {
+              // Generate WorkerFuncs Enum
+              if method.sig.ident != "new" && !is_static_method(&method.sig.inputs) {
+                enum_output.push(format!("{}({}),",
+                  method.sig.ident.to_string().to_case(Case::UpperCamel),
+                  types_to_string(&method.sig.inputs),
+                ));
+              }
 
-          // Generate WorkerFuncs Enum
-          if a.sig.ident != "new" {
-            enum_output.push(format!("{}({}),",
-              a.sig.ident.to_string().to_case(Case::UpperCamel),
-              types_to_string(&a.sig.inputs),
-            ));
+              // JPB: TODO: Generate Impl ThingyWorker
+              
+
+              // Generate Impl ThingyController
+              if method.sig.ident != "new" && !is_static_method(&method.sig.inputs) {
+                //controller_impl_output.push(quote!(#method).to_string());
+                controller_impl_output.push(format!("pub {} {{\nself.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();\n}}",
+                  method.sig.to_token_stream().to_string(),
+                  method.sig.ident.to_string().to_case(Case::UpperCamel),
+                  params_to_args_string(&method.sig.inputs)
+                ));
+              }
+            }
+            _ => {}
           }
-
-
-
-          // JPB: TODO: Generate Impl ThingyWorker
-
-          // JPB: TODO: Generate Struct ThingyController
-
-          // JPB: TODO: Generate Impl ThingyController
         }
       _ => { println!("INVALID_FUNCTION_TYPE"); }
     }
@@ -117,18 +185,24 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   // Generate WorkerFuncs Enum
   enum_output.push(format!("}}"));
 
+  // Generate Impl ThingyController
+  controller_impl_output.push(format!("}}"));
+
   println!("----------------------------");
 
-  format!("{}\n\n{}\n\n{}\n\n",
+  format!("{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n\n",
     item,
     enum_output.join("\n"),
-    worker_struct_output
+    worker_struct_output,
+    worker_impl_output,
+    controller_struct_output,
+    controller_impl_output.join("\n")
   ).parse().expect("Generated invalid tokens")
 }
 
 
 #[proc_macro_attribute]
-pub fn intro(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
   let _input = input.clone();
   let input = parse_macro_input!(input as ItemStruct);
 
