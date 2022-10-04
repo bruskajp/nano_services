@@ -1,16 +1,17 @@
-use std::{thread};//, time};
-use crossbeam_channel::{unbounded, Sender};//, Receiver};
+
+// ------------------------------------
+// API NOTES
+// 
+// 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
+// 2) The original class (Thingy) must have a constructor ("new" function)
+// 3) The worker is created by calling <original_class_name>Worker::new()
+// ------------------------------------
+
 use std::cell::RefCell;
 
 #[macro_use]
 extern crate my_macro;
 
-// Api Notes:
-// 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
-
-
-
-// JPB: TODO: Make this private
 #[intro]
 struct Thingy {
   a: RefCell<i32>,
@@ -35,7 +36,7 @@ impl Thingy {
 //  IncA(i32),
 //  IncATwice(i32, i32),
 //}
-
+//
 //struct ThingyWorker;
 //impl ThingyWorker {
 //  pub fn new(i: i32) -> (thread::JoinHandle<()>, ThingyController) {
@@ -54,11 +55,11 @@ impl Thingy {
 //    (handle, ThingyController{send})
 //  }
 //}
-
+//
 //struct ThingyController {
 //  send: Sender<Box<WorkerFuncs>>,
 //}
-
+//
 //impl ThingyController {
 //  // Internal commands
 //  pub fn controller_stop_thread(&self) {
@@ -75,17 +76,12 @@ impl Thingy {
 //  pub fn inc_a_twice(&self, i: i32, j: i32) {
 //    self.send.send(Box::new(WorkerFuncs::IncATwice(i, j))).unwrap();
 //  }
-//  pub fn print_hello(&self) {
-//    self.send.send(Box::new(WorkerFuncs::PrintHello())).unwrap();
-//  }
 //}
 
 fn main() {
   Thingy::introspect();
 
   let (handle, thingy) = ThingyWorker::new(-1);
-
-  //thread::sleep(time::Duration::from_millis(500));
 
   Thingy::print_hello();
   thingy.print_a();
