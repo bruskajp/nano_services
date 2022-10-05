@@ -55,6 +55,7 @@ fn is_static_method(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token:
   })
 }
 
+// JPB: TODO: Change all unwraps to proper error handling - maybe just .expect("<error msg>")
 // JPB: TODO: Make everything except the controller private
 // JPB: TODO: Make the original class's constructor create the worker?
 #[proc_macro_attribute]
