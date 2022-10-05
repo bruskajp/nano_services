@@ -220,6 +220,19 @@ pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
   output.parse().expect("Generated invalid tokens")
 }
 
+
+// ------------------------------------
+// UNIT TESTS
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn basic_unit_test() {
+    assert_eq!(1, 1);
+  }
+}
+
+
 // ------------------------------------
 // HELPFUL STUFF
 
@@ -283,5 +296,8 @@ pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
 //    }
 //    .into()
 //}
+
+// Capture stdio as macro for assert
+// https://users.rust-lang.org/t/how-to-test-functions-that-use-println/67188/5
 
 
