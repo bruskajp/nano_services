@@ -10,8 +10,8 @@ use convert_case::{Case, Casing};
 // This can be done slowly by still using to_token_stream in intermediate steps
 use syn::__private::ToTokens; 
 
-fn params_to_arg_types_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> String {
-  inputs.pairs().fold(String::new(), |cur, next| {
+fn params_to_arg_types_string(method: &ImplItemMethod) -> String {
+  method.sig.inputs.pairs().fold(String::new(), |cur, next| {
     let symbols = match next.value() {
       FnArg::Receiver(_) => { "".to_string() },
       FnArg::Typed(ty) => match &*ty.ty {
@@ -22,7 +22,7 @@ fn params_to_arg_types_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, s
             )
           )
         },
-        _ => "INVALID_TYPE_IN_FUNCTION_ARGS".to_string(),
+        _ => "INVALID_TYPE_IN_FUNCTION_ARG_TYPES".to_string(),
       }
     };
 
@@ -31,13 +31,13 @@ fn params_to_arg_types_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, s
   })
 }
 
-fn params_to_args_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> String {
-  inputs.pairs().fold(String::new(), |cur, next| {
+fn params_to_arg_names_string(method: &ImplItemMethod) -> String {
+  method.sig.inputs.pairs().fold(String::new(), |cur, next| {
     let symbols = match next.value() {
       FnArg::Receiver(_) => { "".to_string() },
       FnArg::Typed(ty) => match &*ty.pat {
         Pat::Ident(ident) => {ident.ident.to_string()},
-        _ => "INVALID_TYPE_IN_FUNCTION_ARGS".to_string(),
+        _ => "INVALID_TYPE_IN_FUNCTION_ARG_NAMES".to_string(),
       }
     };
 
@@ -46,8 +46,31 @@ fn params_to_args_string(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::t
   })
 }
 
-fn is_static_method(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> bool {
-  inputs.pairs().fold(true, |cur, next| {
+fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
+  match &method.sig.output {
+    ReturnType::Default => None,
+    ReturnType::Type(_, ty) => match &**ty {
+      Type::Path(path) => {
+        Some(format!("{}",
+          path.path.segments.pairs().fold(String::new(),
+            |cur, next| { cur + &next.value().ident.to_string() } 
+          )
+        ))
+      },
+      _ => Some("INVALID_TYPE_IN_FUNCTION_RETURN".to_string()),
+    }
+  }
+}
+
+fn is_method_blocking(method: &ImplItemMethod) -> bool {
+  match &method.sig.output {
+    ReturnType::Default => false,
+    ReturnType::Type(_, _) => true,
+  }
+}
+
+fn is_method_static(method: &ImplItemMethod) -> bool {
+  method.sig.inputs.pairs().fold(true, |cur, next| {
     cur && match next.value() {
       FnArg::Receiver(_) => false,
       FnArg::Typed(_) => true,
@@ -78,15 +101,20 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   // Generate Includes
   let mut includes_output = Vec::new();
   includes_output.push(format!("use std::{{thread}};"));
-  includes_output.push(format!("use crossbeam_channel::{{unbounded, Sender}};"));
+  includes_output.push(format!("use crossbeam_channel::{{unbounded, Sender, Receiver}};"));
 
   // Generate WorkerFuncs Enum
-  let mut enum_output = Vec::new();
-  enum_output.push(format!("enum WorkerFuncs {{"));
-  enum_output.push(format!("WorkerQuit(),"));
+  let mut funcs_enum_output = Vec::new();
+  funcs_enum_output.push(format!("enum WorkerFuncs {{"));
+  funcs_enum_output.push(format!("WorkerQuit(),"));
+
+  // Generate WorkerReturns Enum
+  let mut returns_enum_output = Vec::new();
+  returns_enum_output.push(format!("enum WorkerReturns {{"));
 
   // Generate Struct Worker
-  let worker_struct_output = format!("struct {class_name}Worker;");
+  let mut worker_struct_output = Vec::new();
+  worker_struct_output.push(format!("struct {class_name}Worker;"));
 
   // Generate Impl Worker
   let mut worker_impl_output = Vec::new();
@@ -96,7 +124,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let mut worker_impl_new_outro = Vec::new();
 
   // Generate Struct Controller
-  let controller_struct_output = format!("struct {class_name}Controller {{\nsend: Sender<Box<WorkerFuncs>>,\n}}");
+  let mut controller_struct_output = Vec::new();
+  controller_struct_output.push(format!("struct {class_name}Controller {{"));
+  controller_struct_output.push(format!("send: Sender<Box<WorkerFuncs>>,"));
+  controller_struct_output.push(format!("recv: Receiver<Box<WorkerReturns>>,"));
+  controller_struct_output.push(format!("}}"));
 
   // Generate Impl Controller
   let mut controller_impl_output = Vec::new();
@@ -116,28 +148,48 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_signature = method.sig.to_token_stream().to_string(); 
               let method_params = method.sig.inputs.to_token_stream().to_string();
               let enum_name = method_name.to_case(Case::UpperCamel);
-              let method_args = params_to_args_string(&method.sig.inputs);
-              let method_arg_types = params_to_arg_types_string(&method.sig.inputs);
+              let method_arg_names = params_to_arg_names_string(method);
+              let method_arg_types = params_to_arg_types_string(method);
+              let method_return_type = returns_to_arg_types_string(method);
+
+              let method_is_blocking = is_method_blocking(method);
+              let method_is_static = is_method_static(method);
+              let method_is_constructor = method_name == "new";
+
+              println!("{} {}", method_name, method_is_blocking);
 
               // Generate WorkerFuncs Enum
-              if method_name != "new" && !is_static_method(&method.sig.inputs) {
-                enum_output.push(format!("{}({}),",
+              if !method_is_constructor && !method_is_static {
+                funcs_enum_output.push(format!("{}({}),",
                   enum_name, method_arg_types,
                 ));
               }
 
+              // Generate WorkerReturns Enum
+              if !method_is_constructor && !method_is_static{
+                match &method_return_type {
+                  None => {},
+                  Some(return_type) => {
+                    returns_enum_output.push(format!("{}({}),",
+                      enum_name, return_type,
+                    ));
+                  }
+                };
+              }
+
               // Generate Impl ThingyWorker
-              if method_name == "new" {
+              if method_is_constructor {
                 worker_impl_new_intro.push(format!("pub fn new({}) -> (thread::JoinHandle<()>, {}Controller) {{",
                   method_params, class_name
                 ));
-                worker_impl_new_intro.push(format!("let (send, recv) = unbounded::<Box<WorkerFuncs>>();"));
+                worker_impl_new_intro.push(format!("let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();"));
+                worker_impl_new_intro.push(format!("let (send_ret, recv_ret) = unbounded::<Box<WorkerReturns>>();"));
                 worker_impl_new_intro.push(format!("let {} = {}::new({});",
-                  object_name, class_name, method_args
+                  object_name, class_name, method_arg_names
                 ));
                 worker_impl_new_intro.push(format!("let handle = thread::spawn(move || {{"));
                 worker_impl_new_intro.push(format!("loop {{"));
-                worker_impl_new_intro.push(format!("match *recv.recv().unwrap() {{"));
+                worker_impl_new_intro.push(format!("match *recv_func.recv().unwrap() {{"));
                 
                 worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
 
@@ -145,19 +197,33 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}});"));
-                worker_impl_new_outro.push(format!("(handle, {}Controller {{ send }})", class_name));
+                worker_impl_new_outro.push(format!("(handle, {}Controller {{send: send_func, recv: recv_ret}})", class_name));
                 worker_impl_new_outro.push(format!("}}"));
-              } else if !is_static_method(&method.sig.inputs) {
-                worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
-                  enum_name, method_args, object_name, method_name, method_args
-                ));
+              } else if !method_is_static {
+                if method_is_blocking {
+                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new(WorkerReturns::{}({}.{}({})))).unwrap(),",
+                    enum_name, method_arg_names, enum_name, object_name, method_name, method_arg_names
+                  ));
+                } else {
+                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
+                    enum_name, method_arg_names, object_name, method_name, method_arg_names
+                  ));
+                }
               }
 
               // Generate Impl ThingyController
-              if method_name != "new" && !is_static_method(&method.sig.inputs) {
-                controller_impl_output.push(format!("pub {} {{\nself.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();\n}}",
-                  method_signature, enum_name, method_args
+              if !method_is_constructor && !method_is_static {
+                controller_impl_output.push(format!("pub {} {{", method_signature));
+                controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();",
+                  enum_name, method_arg_names
                 ));
+                if method_is_blocking {
+                  controller_impl_output.push(format!("match *self.recv.recv().unwrap() {{"));
+                  controller_impl_output.push(format!("WorkerReturns::{}(ret) => ret,", enum_name));
+                  controller_impl_output.push(format!("_ => panic!(\"Invalid return type in inc_and_get_a\n(may be using Controller class across threads)\"),"));
+                  controller_impl_output.push(format!("}}"));
+                }
+                controller_impl_output.push(format!("}}"));
               }
             }
             _ => {}
@@ -168,7 +234,10 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   });
 
   // Generate WorkerFuncs Enum
-  enum_output.push(format!("}}"));
+  funcs_enum_output.push(format!("}}"));
+
+  // Generate WorkerReturns Enum
+  returns_enum_output.push(format!("}}"));
 
   // Generate Impl Worker
   worker_impl_output.push(worker_impl_new_intro.join("\n"));
@@ -181,13 +250,14 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
   //println!("----------------------------");
 
-  format!("{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+  format!("{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
     item,
     includes_output.join("\n"),
-    enum_output.join("\n"),
-    worker_struct_output,
+    funcs_enum_output.join("\n"),
+    returns_enum_output.join("\n"),
+    worker_struct_output.join("\n"),
     worker_impl_output.join("\n"),
-    controller_struct_output,
+    controller_struct_output.join("\n"),
     controller_impl_output.join("\n")
   ).parse().expect("Generated invalid tokens")
 }

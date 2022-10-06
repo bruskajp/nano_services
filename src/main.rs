@@ -86,10 +86,10 @@ impl ThingyController {
   }
 
   // Function duplicates
-  pub fn print_a(&self) {
+  pub fn print_a(&self) -> () {
     self.send.send(Box::new(WorkerFuncs::PrintA())).unwrap();
   }
-  pub fn inc_a(&self, i: i32) {
+  pub fn inc_a(&self, i: i32) -> () {
     self.send.send(Box::new(WorkerFuncs::IncA(i))).unwrap();
   }
   pub fn inc_a_twice(&self, i: i32, j: i32) {
@@ -106,7 +106,7 @@ impl ThingyController {
     self.send.send(Box::new(WorkerFuncs::IncAndGetA(i))).unwrap();
     match *self.recv.recv().unwrap() {
       WorkerReturns::IncAndGetA(ret) => ret,
-      _ => { panic!("Invalid return type in inc_and_get_a\n(may be using Controller class across threads)") },
+      _ => panic!("Invalid return type in inc_and_get_a\n(may be using Controller class across threads)"),
     }
   }
 }
