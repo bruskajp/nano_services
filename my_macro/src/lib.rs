@@ -62,6 +62,7 @@ fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
   }
 }
 
+// JPB: TODO: Change this to another method of determining if a method is blocking
 fn is_method_blocking(method: &ImplItemMethod) -> bool {
   match &method.sig.output {
     ReturnType::Default => false,
@@ -125,6 +126,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
   // Generate Struct Controller
   let mut controller_struct_output = Vec::new();
+  controller_struct_output.push(format!("#[derive(Clone, Debug)]"));
   controller_struct_output.push(format!("struct {class_name}Controller {{"));
   controller_struct_output.push(format!("send: Sender<Box<WorkerFuncs>>,"));
   controller_struct_output.push(format!("recv: Receiver<Box<WorkerReturns>>,"));

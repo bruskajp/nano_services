@@ -30,8 +30,8 @@ impl Thingy {
   pub fn get_a(&self) -> i32 {
     self.a.lock().unwrap().clone()
   }
-  pub fn inc_and_get_a(&self, i: i32) -> i32 {
-    *self.a.lock().unwrap() += i;
+  pub fn set_and_get_a(&self, i: i32) -> i32 {
+    *self.a.lock().unwrap() = i;
     self.a.lock().unwrap().clone()
   }
 }
@@ -92,7 +92,7 @@ fn worker_blocking_method_no_args() {
 fn worker_blocking_method_with_args() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-  assert_eq!(thingy.inc_and_get_a(3), 3);
+  assert_eq!(thingy.set_and_get_a(3), 3);
   thingy.controller_stop_thread();
   handle.join().unwrap();
   
@@ -113,10 +113,32 @@ fn worker_check_ordering() {
 fn worker_check_ordering2() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-  assert_eq!(thingy.inc_and_get_a(3), 3);
-  assert_eq!(thingy.inc_and_get_a(3), 6);
-  assert_eq!(thingy.inc_and_get_a(3), 9);
+  assert_eq!(thingy.set_and_get_a(3), 3);
+  assert_eq!(thingy.set_and_get_a(6), 6);
+  assert_eq!(thingy.set_and_get_a(9), 9);
   thingy.controller_stop_thread();
   handle.join().unwrap();
+}
+
+// Options to fix
+// 1) Separate channel for each function (each class has many receiver member variables, don't need a list)
+// 2) Use a future that is passed in with the Send function, the recv just changes to an await 
+
+
+#[test]
+fn threading() {
+  let counter = Arc::new(Mutex::new(-1));
+  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   
+  let thingy_clone = thingy.clone();
+  let handle = thread::spawn(move || {
+    assert_eq!(thingy_clone.set_and_get_a(3), 3);
+  });
+
+  assert_eq!(thingy.set_and_get_a(6), 6);
+
+  thingy.controller_stop_thread();
+
+  handle.join().unwrap();
+  thingy_handle.join().unwrap();
 }
