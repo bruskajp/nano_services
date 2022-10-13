@@ -12,10 +12,6 @@
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
-#[macro_use]
-extern crate my_macro;
-
-#[intro]
 struct Thingy {
   a: Arc<Mutex<i32>>,
   b: RefCell<i32>,
@@ -63,14 +59,16 @@ enum WorkerFuncs {
     IncA(i32),
     GetA(),
     SetAndGetA(Sender<i32>, i32),
-    SetAndGetB(Sender<i32>, i32),
+    SetAndGetNewChannel(Sender<Box<i32>>, i32),
+    SetAndGetUnsafe(i32),
 }
 enum WorkerReturns {
     GetA(i32),
     SetAndGetA(i32),
-    SetAndGetB(i32),
+    //SetAndGetNewChannel(i32),
+    SetAndGetUnsafe(i32),
 }
-struct ThingyWorker;
+pub struct ThingyWorker;
 impl ThingyWorker {
     pub fn new(a: Arc<Mutex<i32>>) -> (thread::JoinHandle<()>, ThingyController) {
         let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();
@@ -90,9 +88,13 @@ impl ThingyWorker {
                         send_ret.send(Box::new(WorkerReturns::SetAndGetA(thingy.set_and_get_a(i))),).unwrap()
                         //snd.send(thingy.set_and_get_a(i)).unwrap()
                     }
-                    WorkerFuncs::SetAndGetB(snd, i) => {
-                        //send_ret.send(Box::new(WorkerReturns::SetAndGetB(thingy.set_and_get_b(i))),).unwrap()
-                        snd.send(thingy.set_and_get_b(i)).unwrap()
+                    WorkerFuncs::SetAndGetNewChannel(snd, i) => {
+                        //send_ret.send(Box::new(WorkerReturns::SetAndGetNewChannel(thingy.set_and_get_new_channel(i))),).unwrap()
+                        snd.send(Box::new(thingy.set_and_get_b(i))).unwrap()
+                    }
+                    WorkerFuncs::SetAndGetUnsafe(i) => {
+                        //send_ret.send(Box::new(WorkerReturns::SetAndGetNewChannel(thingy.set_and_get_new_channel(i))),).unwrap()
+                        send_ret.send(Box::new(WorkerReturns::SetAndGetUnsafe(thingy.set_and_get_b(i)))).unwrap()
                     }
                 }
             }
@@ -108,7 +110,7 @@ impl ThingyWorker {
 }
 
 #[derive(Clone, Debug)]
-struct ThingyController {
+pub struct ThingyController {
     send: Sender<Box<WorkerFuncs>>,
     recv: Receiver<Box<WorkerReturns>>,
 }
@@ -142,36 +144,39 @@ impl ThingyController {
             _ => panic!("Invalid return type in inc_and_get_a\n(may be using Controller class across threads)"),
         }
     }
-    pub fn set_and_get_b(&self, i: i32) -> i32 {
-        let (snd, rcv) = unbounded::<i32>();
-        self.send.send(Box::new(WorkerFuncs::SetAndGetB(snd, i))).unwrap();
-        rcv.recv().unwrap()
-        //match *self.recv.recv().unwrap() {
-        //    WorkerReturns::SetAndGetB(ret) => ret,
-        //    _ => panic!("Invalid return type in inc_and_get_a\n(may be using Controller class across threads)"),
-        //}
+    pub fn set_and_get_new_channel(&self, i: i32) -> i32 {
+        let (snd, rcv) = unbounded::<Box<i32>>();
+        self.send.send(Box::new(WorkerFuncs::SetAndGetNewChannel(snd, i))).unwrap();
+        *rcv.recv().unwrap()
+    }
+    pub fn set_and_get_unsafe(&self, i: i32) -> i32 {
+        self.send.send(Box::new(WorkerFuncs::SetAndGetUnsafe(i))).unwrap();
+        match *self.recv.recv().unwrap() {
+            WorkerReturns::SetAndGetUnsafe(ret) => ret,
+            _ => panic!("Invalid return type in set_and_get_unsafe\n(may be using Controller class across threads)"),
+        }
     }
 }
 
-fn main() {
-  let counter = Arc::new(Mutex::new(-1));
-  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-
-  let thingy_clone = thingy.clone();
-  let handle = thread::spawn(move || {
-    for i in 1..10 {
-      println!("B{} set_and_get: {}", i, thingy_clone.set_and_get_b(i));
-    }
-  });
-
-  for i in 1..10 {
-    println!("\tA{} set_and_get: {}", i, thingy.set_and_get_b(i));
-  }
-
-
-  handle.join().unwrap();
-
-  thingy.controller_stop_thread();
-  thingy_handle.join().unwrap();
-}
+//fn main() {
+//  let counter = Arc::new(Mutex::new(-1));
+//  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
+//
+//  let thingy_clone = thingy.clone();
+//  let handle = thread::spawn(move || {
+//    for i in 1..10 {
+//      println!("B{} set_and_get: {}", i, thingy_clone.set_and_get_new_channel(i));
+//    }
+//  });
+//
+//  for i in 1..10 {
+//    println!("\tA{} set_and_get: {}", i, thingy.set_and_get_new_channel(i));
+//  }
+//
+//
+//  handle.join().unwrap();
+//
+//  thingy.controller_stop_thread();
+//  thingy_handle.join().unwrap();
+//}
 

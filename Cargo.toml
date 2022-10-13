@@ -6,5 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+criterion = "0.3"
 crossbeam-channel = "0.5.6"
 my_macro = { path = "my_macro" }
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
