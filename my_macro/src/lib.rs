@@ -109,10 +109,6 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   funcs_enum_output.push(format!("enum WorkerFuncs {{"));
   funcs_enum_output.push(format!("WorkerQuit(),"));
 
-  // Generate WorkerReturns Enum
-  let mut returns_enum_output = Vec::new();
-  returns_enum_output.push(format!("enum WorkerReturns {{"));
-
   // Generate Struct Worker
   let mut worker_struct_output = Vec::new();
   worker_struct_output.push(format!("struct {class_name}Worker;"));
@@ -129,7 +125,6 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   controller_struct_output.push(format!("#[derive(Clone, Debug)]"));
   controller_struct_output.push(format!("struct {class_name}Controller {{"));
   controller_struct_output.push(format!("send: Sender<Box<WorkerFuncs>>,"));
-  controller_struct_output.push(format!("recv: Receiver<Box<WorkerReturns>>,"));
   controller_struct_output.push(format!("}}"));
 
   // Generate Impl Controller
@@ -173,7 +168,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               if !method_is_constructor && !method_is_static {
                 if method_is_blocking {
                   enum_arg_types = format!("Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
-                  enum_arg_names = format!("send, {}", method_arg_names);
+                  enum_arg_names = format!("send_ret, {}", method_arg_names);
                 };
 
                 funcs_enum_output.push(format!("{}({}),",
@@ -187,7 +182,6 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                   method_params, class_name
                 ));
                 worker_impl_new_intro.push(format!("let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();"));
-                worker_impl_new_intro.push(format!("let (send_ret, recv_ret) = unbounded::<Box<WorkerReturns>>();"));
                 worker_impl_new_intro.push(format!("let {} = {}::new({});",
                   object_name, class_name, method_arg_names
                 ));
@@ -201,11 +195,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}});"));
-                worker_impl_new_outro.push(format!("(handle, {}Controller {{send: send_func, recv: recv_ret}})", class_name));
+                worker_impl_new_outro.push(format!("(handle, {}Controller {{send: send_func}})", class_name));
                 worker_impl_new_outro.push(format!("}}"));
               } else if !method_is_static {
                 if method_is_blocking {
-                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send.send(Box::new({}.{}({}))).unwrap(),",
+                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new({}.{}({}))).unwrap(),",
                     enum_name, enum_arg_names, object_name, method_name, method_arg_names
                   ));
                 } else {
@@ -219,7 +213,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               if !method_is_constructor && !method_is_static {
                 controller_impl_output.push(format!("pub {} {{", method_signature));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("let (send, recv) = unbounded::<Box<{}>>();", 
+                  controller_impl_output.push(format!("let (send_ret, recv_ret) = unbounded::<Box<{}>>();", 
                     method_return_type_str
                   ));
                 }
@@ -227,7 +221,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                   enum_name, enum_arg_names
                 ));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("*recv.recv().unwrap()"));
+                  controller_impl_output.push(format!("*recv_ret.recv().unwrap()"));
                 }
                 controller_impl_output.push(format!("}}"));
               }
@@ -242,9 +236,6 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   // Generate WorkerFuncs Enum
   funcs_enum_output.push(format!("}}"));
 
-  // Generate WorkerReturns Enum
-  returns_enum_output.push(format!("}}"));
-
   // Generate Impl Worker
   worker_impl_output.push(worker_impl_new_intro.join("\n"));
   worker_impl_output.push(worker_impl_new_match.join("\n"));
@@ -256,11 +247,10 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
   //println!("----------------------------");
 
-  format!("{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+  format!("{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
     item,
     includes_output.join("\n"),
     funcs_enum_output.join("\n"),
-    returns_enum_output.join("\n"),
     worker_struct_output.join("\n"),
     worker_impl_output.join("\n"),
     controller_struct_output.join("\n"),

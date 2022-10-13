@@ -137,8 +137,7 @@ fn threading() {
 
   assert_eq!(thingy.set_and_get_a(6), 6);
 
-  thingy.controller_stop_thread();
-
   handle.join().unwrap();
+  thingy.controller_stop_thread();
   thingy_handle.join().unwrap();
 }
