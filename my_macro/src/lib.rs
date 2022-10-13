@@ -153,6 +153,15 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_arg_names = params_to_arg_names_string(method);
               let method_arg_types = params_to_arg_types_string(method);
               let method_return_type = returns_to_arg_types_string(method);
+              // JPB: TODO: Make method_return_type_str a function
+              let method_return_type_str = match &method_return_type {
+                None => { format!("()") },
+                Some(return_type) => { format!("{}", return_type) }
+              }; 
+              
+              // JPB: TODO: Make enum_arg_types generate with its own method
+              let mut enum_arg_types = method_arg_types.clone();
+              let mut enum_arg_names = method_arg_names.clone();
 
               let method_is_blocking = is_method_blocking(method);
               let method_is_static = is_method_static(method);
@@ -162,21 +171,14 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
               // Generate WorkerFuncs Enum
               if !method_is_constructor && !method_is_static {
-                funcs_enum_output.push(format!("{}({}),",
-                  enum_name, method_arg_types,
-                ));
-              }
-
-              // Generate WorkerReturns Enum
-              if !method_is_constructor && !method_is_static{
-                match &method_return_type {
-                  None => {},
-                  Some(return_type) => {
-                    returns_enum_output.push(format!("{}({}),",
-                      enum_name, return_type,
-                    ));
-                  }
+                if method_is_blocking {
+                  enum_arg_types = format!("Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
+                  enum_arg_names = format!("send, {}", method_arg_names);
                 };
+
+                funcs_enum_output.push(format!("{}({}),",
+                  enum_name, enum_arg_types,
+                ));
               }
 
               // Generate Impl ThingyWorker
@@ -203,12 +205,12 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_outro.push(format!("}}"));
               } else if !method_is_static {
                 if method_is_blocking {
-                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new(WorkerReturns::{}({}.{}({})))).unwrap(),",
-                    enum_name, method_arg_names, enum_name, object_name, method_name, method_arg_names
+                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send.send(Box::new({}.{}({}))).unwrap(),",
+                    enum_name, enum_arg_names, object_name, method_name, method_arg_names
                   ));
                 } else {
                   worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
-                    enum_name, method_arg_names, object_name, method_name, method_arg_names
+                    enum_name, enum_arg_names, object_name, method_name, method_arg_names
                   ));
                 }
               }
@@ -216,14 +218,16 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               // Generate Impl ThingyController
               if !method_is_constructor && !method_is_static {
                 controller_impl_output.push(format!("pub {} {{", method_signature));
+                if method_is_blocking {
+                  controller_impl_output.push(format!("let (send, recv) = unbounded::<Box<{}>>();", 
+                    method_return_type_str
+                  ));
+                }
                 controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();",
-                  enum_name, method_arg_names
+                  enum_name, enum_arg_names
                 ));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("match *self.recv.recv().unwrap() {{"));
-                  controller_impl_output.push(format!("WorkerReturns::{}(ret) => ret,", enum_name));
-                  controller_impl_output.push(format!("_ => panic!(\"Invalid return type in inc_and_get_a\n(may be using Controller class across threads)\"),"));
-                  controller_impl_output.push(format!("}}"));
+                  controller_impl_output.push(format!("*recv.recv().unwrap()"));
                 }
                 controller_impl_output.push(format!("}}"));
               }

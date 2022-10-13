@@ -5,8 +5,6 @@
 // 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
 // 2) The original class (Thingy) must have a constructor ("new" function)
 // 3) The worker is created by calling <original_class_name>Worker::new()
-// 4) As it stands, you cannot call Controller methods from other threads
-//      - it creates a ordering error with the recvs in blocking methods
 // ------------------------------------
 
 use std::sync::{Arc, Mutex};
