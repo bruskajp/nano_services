@@ -1,14 +1,3 @@
-
-// ------------------------------------
-// API NOTES
-// 
-// 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
-// 2) The original class (Thingy) must have a constructor ("new" function)
-// 3) The worker is created by calling <original_class_name>Worker::new()
-// 4) As it stands, you cannot call Controller methods from other threads
-//      - it creates a ordering error with the recvs in blocking methods
-// ------------------------------------
-
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 use futures;
@@ -183,7 +172,7 @@ impl ThingyController {
     pub fn set_and_get_new_oneshot_channel_futures(&self, i: i32) -> i32 {
         let (snd, rcv) = futures::channel::oneshot::channel::<Box<i32>>();
         self.send.send(Box::new(WorkerFuncs::SetAndGetNewOneshotChannelFutures(snd, i))).unwrap();
-        match futures::executor::block_on(async {
+        match futures::executor::block_on(async move {
           rcv.await
         }) {
           Ok(x) => *x,
@@ -200,26 +189,4 @@ impl ThingyController {
         })
     }
 }
-
-//fn main() {
-//  let counter = Arc::new(Mutex::new(-1));
-//  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-//
-//  let thingy_clone = thingy.clone();
-//  let handle = thread::spawn(move || {
-//    for i in 1..10 {
-//      println!("B{} set_and_get: {}", i, thingy_clone.set_and_get_new_channel(i));
-//    }
-//  });
-//
-//  for i in 1..10 {
-//    println!("\tA{} set_and_get: {}", i, thingy.set_and_get_new_channel(i));
-//  }
-//
-//
-//  handle.join().unwrap();
-//
-//  thingy.controller_stop_thread();
-//  thingy_handle.join().unwrap();
-//}
 

@@ -3,7 +3,7 @@
 mod channel_options;
 
 use std::thread;
-use setup_raw::{ThingyWorker, ThingyController};
+use channel_options::{ThingyWorker, ThingyController};
 use std::sync::{Arc, Mutex};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -28,12 +28,23 @@ fn multi_thread_tester(num_threads: i32, num_events: i32, thingy: &ThingyControl
 
 
 // Results
-//  - unsafe is fast, but not safe (it is not safe across threads)
-//  - new_channel is twice as slow, but is safe
-//  - futures_oneshot_channel is faster than the unsafe version
-//  - tokio_oneshot_channel is slightly slower than the futures_oneshot_channel, but it is safe to use with tokio
-//    - This should not be pertinent because each class is already its own thread.
-//    - If I were to use this, It would be an overhaul such that classes could have async methods, which would then need the tokio scheduler
+//  - 1 thread
+//    - no difference
+//  - 2 threads
+//    - unsafe < futures_oneshot_channel < tokio_onehsot_channel < new_channel
+//  - 10 threads
+//    - futures_oneshot_channel < unsafe < tokio_onehsot_channel < new_channel
+//  - 100 threads
+//    - futures_oneshot_channel < tokio_onehsot_channel < unsafe < new_channel
+//  - Overall
+//    - unsafe is fast, but not safe (it is not safe across threads)
+//    - new_channel is twice as slow, but is safe
+//    - futures_oneshot_channel is faster than the unsafe version
+//    - tokio_oneshot_channel is slightly slower than the futures_oneshot_channel, but it is safe to use with tokio
+//      - This should not be pertinent because each class is already its own thread.
+//      - If I were to use this, it would be to allow the Controller to have async methods for getters, which would then need the tokio scheduler
+//        This is just adding futures to the threading paradigm, which are currently, purposely avoided.
+//  - Choice: futures_oneshot_channel
 pub fn channel_options_benchmark(c: &mut Criterion) {
   let counter = Arc::new(Mutex::new(-1));
   let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));

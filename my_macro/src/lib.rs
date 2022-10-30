@@ -1,3 +1,12 @@
+
+// ------------------------------------
+// API NOTES
+//
+// 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
+// 2) The original class (Thingy) must have a constructor ("new" function)
+// 3) The worker is created by calling <original_class_name>Worker::new()
+// ------------------------------------
+
 extern crate proc_macro;
 
 use proc_macro::*;
@@ -62,7 +71,7 @@ fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
   }
 }
 
-// JPB: TODO: Change is_method_blocking to another way of determining if a method is blocking
+// TODO: JPB: Change is_method_blocking to another way of determining if a method is blocking
 fn is_method_blocking(method: &ImplItemMethod) -> bool {
   match &method.sig.output {
     ReturnType::Default => false,
@@ -79,9 +88,10 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
   })
 }
 
-// JPB: TODO: Change all unwraps to proper error handling - maybe just .expect("<error msg>")
-// JPB: TODO: Make everything except the controller private
-// JPB: TODO: Make the original class's constructor create the worker?
+// TODO: JPB: Change all unwraps to proper error handling - maybe just .expect("<error msg>")
+// TODO: JPB: Make everything except the controller private
+// TODO: JPB: Make the original class's constructor create the worker?
+// TODO: JPB: Convert Worker::new into just a global function and delete the Worker class entirely OR merge it with the Controller
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
@@ -100,9 +110,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let object_name = class_name.to_case(Case::Camel);
 
   // Generate Includes
+  // TODO: JPB: Change includes to use full path (don't pollute the namespace)
   let mut includes_output = Vec::new();
   includes_output.push(format!("use std::{{thread}};"));
   includes_output.push(format!("use crossbeam_channel::{{unbounded, Sender, Receiver}};"));
+  includes_output.push(format!("use futures;"));
 
   // Generate WorkerFuncs Enum
   let mut funcs_enum_output = Vec::new();
@@ -148,13 +160,13 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_arg_names = params_to_arg_names_string(method);
               let method_arg_types = params_to_arg_types_string(method);
               let method_return_type = returns_to_arg_types_string(method);
-              // JPB: TODO: Make method_return_type_str a function
+              // TODO: JPB: Make method_return_type_str a function
               let method_return_type_str = match &method_return_type {
                 None => { format!("()") },
                 Some(return_type) => { format!("{}", return_type) }
               }; 
               
-              // JPB: TODO: Make enum_arg_types generate with its own method
+              // TODO: JPB: Make enum_arg_types generate with its own method
               let mut enum_arg_types = method_arg_types.clone();
               let mut enum_arg_names = method_arg_names.clone();
 
@@ -167,7 +179,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               // Generate WorkerFuncs Enum
               if !method_is_constructor && !method_is_static {
                 if method_is_blocking {
-                  enum_arg_types = format!("Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
+                  enum_arg_types = format!("futures::channel::oneshot::Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
                   enum_arg_names = format!("send_ret, {}", method_arg_names);
                 };
 
@@ -213,7 +225,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               if !method_is_constructor && !method_is_static {
                 controller_impl_output.push(format!("pub {} {{", method_signature));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("let (send_ret, recv_ret) = unbounded::<Box<{}>>();", 
+                  controller_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{}>>();;", 
                     method_return_type_str
                   ));
                 }
@@ -221,7 +233,10 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                   enum_name, enum_arg_names
                 ));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("*recv_ret.recv().unwrap()"));
+                  controller_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
+                  controller_impl_output.push(format!("Ok(x) => *x,"));
+                  controller_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {}\"),", method_name));
+                  controller_impl_output.push(format!("}}"));
                 }
                 controller_impl_output.push(format!("}}"));
               }
