@@ -1,95 +1,86 @@
 //use mycrate::fibonacci;
 
-mod setup_raw;
+mod channel_options;
 
 use std::thread;
 use setup_raw::{ThingyWorker, ThingyController};
 use std::sync::{Arc, Mutex};
-
-#[inline]
-fn fibonacci(n: u64) -> u64 {
-    match n {
-        0 => 1,
-        1 => 1,
-        n => fibonacci(n-1) + fibonacci(n-2),
-    }
-}
-
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn set_and_get_new_channel(num_events: i32, thingy: ThingyController, thingy_clone: ThingyController) {
-  let handle = thread::spawn(move || {
-    for i in 1..num_events {
-      thingy_clone.set_and_get_new_channel(i);
-    }   
-  }); 
+#[inline]
+fn multi_thread_tester(num_threads: i32, num_events: i32, thingy: &ThingyController, method: fn(&ThingyController, i32) -> i32) {
+  let mut handles = Vec::new();
 
-  for i in 1..num_events {
-    thingy.set_and_get_new_channel(i);
+  for i in 1..num_threads {
+    let thingy_clone = thingy.controller_copy();
+    let i_clone = i.clone();
+    handles.push(thread::spawn(move || {
+      for _ in 1..num_events {
+        method(&thingy_clone, i_clone);
+      }
+    }));
   }
 
-  handle.join().unwrap();
-}
-
-fn set_and_get_unsafe(num_events: i32, thingy: ThingyController, thingy_clone: ThingyController) {
-  let handle = thread::spawn(move || {
-    for i in 1..num_events {
-      thingy_clone.set_and_get_unsafe(i);
-    }   
-  }); 
-
-  for i in 1..num_events {
-    thingy.set_and_get_unsafe(i);
+  for handle in handles {
+    handle.join(); // Wait for the threads to finish
   }
-
-  handle.join().unwrap();
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
+
+// Results
+//  - unsafe is fast, but not safe (it is not safe across threads)
+//  - new_channel is twice as slow, but is safe
+//  - futures_oneshot_channel is faster than the unsafe version
+//  - tokio_oneshot_channel is slightly slower than the futures_oneshot_channel, but it is safe to use with tokio
+//    - This should not be pertinent because each class is already its own thread.
+//    - If I were to use this, It would be an overhaul such that classes could have async methods, which would then need the tokio scheduler
+pub fn channel_options_benchmark(c: &mut Criterion) {
   let counter = Arc::new(Mutex::new(-1));
   let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   
-  c.bench_function("set get unsafe 1", |b| b.iter(|| set_and_get_unsafe(black_box(1), black_box(thingy.clone()), black_box(thingy.clone()))));
-  c.bench_function("set get new channel 1", |b| b.iter(|| set_and_get_new_channel(black_box(1), black_box(thingy.clone()), black_box(thingy.clone()))));
-  c.bench_function("set get unsafe 10", |b| b.iter(|| set_and_get_unsafe(black_box(10), black_box(thingy.clone()), black_box(thingy.clone()))));
-  c.bench_function("set get new channel 10", |b| b.iter(|| set_and_get_new_channel(black_box(10), black_box(thingy.clone()), black_box(thingy.clone()))));
-  c.bench_function("set get unsafe 100", |b| b.iter(|| set_and_get_unsafe(black_box(100), black_box(thingy.clone()), black_box(thingy.clone()))));
-  c.bench_function("set get new channel 100", |b| b.iter(|| set_and_get_new_channel(black_box(100), black_box(thingy.clone()), black_box(thingy.clone()))));
+  c.bench_function("set get unsafe 1", |b| b.iter(|| 
+    multi_thread_tester(black_box(1), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_unsafe))));
+  c.bench_function("set get new channel 1", |b| b.iter(|| 
+    multi_thread_tester(black_box(1), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_channel))));
+  c.bench_function("set get new oneshot channel futures 1", |b| b.iter(|| 
+    multi_thread_tester(black_box(1), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_futures))));
+  c.bench_function("set get new oneshot channel tokio 1", |b| b.iter(|| 
+    multi_thread_tester(black_box(1), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_tokio))));
+
+  c.bench_function("set get unsafe 2", |b| b.iter(|| 
+    multi_thread_tester(black_box(2), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_unsafe))));
+  c.bench_function("set get new channel 2", |b| b.iter(||
+    multi_thread_tester(black_box(2), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_channel))));
+  c.bench_function("set get new oneshot channel futures 2", |b| b.iter(||
+    multi_thread_tester(black_box(2), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_futures))));
+  c.bench_function("set get new oneshot channel tokio 2", |b| b.iter(||
+    multi_thread_tester(black_box(2), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_tokio))));
+
+  c.bench_function("set get unsafe 10", |b| b.iter(||
+    multi_thread_tester(black_box(10), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_unsafe))));
+  c.bench_function("set get new channel 10", |b| b.iter(||
+    multi_thread_tester(black_box(10), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_channel))));
+  c.bench_function("set get new oneshot channel futures 10", |b| b.iter(||
+    multi_thread_tester(black_box(10), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_futures))));
+  c.bench_function("set get new oneshot channel tokio 10", |b| b.iter(||
+    multi_thread_tester(black_box(10), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_tokio))));
+
+  c.bench_function("set get unsafe 100", |b| b.iter(||
+    multi_thread_tester(black_box(100), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_unsafe))));
+  c.bench_function("set get new channel 100", |b| b.iter(||
+    multi_thread_tester(black_box(100), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_channel))));
+  c.bench_function("set get new oneshot channel futures 100", |b| b.iter(||
+    multi_thread_tester(black_box(100), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_futures))));
+  c.bench_function("set get new oneshot channel tokio 100", |b| b.iter(||
+    multi_thread_tester(black_box(100), black_box(10), black_box(&thingy), black_box(ThingyController::set_and_get_new_oneshot_channel_tokio))));
 
   thingy.controller_stop_thread();
   thingy_handle.join().unwrap();
-
 }
-
-//pub fn criterion_benchmark(c: &mut Criterion) {
-//  c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
-//}
-
-//pub fn criterion_benchmark(c: &mut Criterion) {
-//  let counter = Arc::new(Mutex::new(-1));
-//  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-//  
-//  let handle = thread::spawn(|| {
-//    for i in 1..10 {
-//      c.bench_function("set get new chanel 1", |b| b.iter(|| thingy.set_and_get_b(black_box(i)) ));
-//    }   
-//  }); 
-//
-//  for i in 1..10 {
-//    c.bench_function("set get new chanel 2", |b| b.iter(|| thingy.set_and_get_b(black_box(i)) ));
-//  }
-//
-//  handle.join().unwrap();
-//
-//  thingy.controller_stop_thread();
-//  thingy_handle.join().unwrap();
-//
-//}
-
 
 criterion_group!(
   name=benches;
-  config=Criterion::default().sample_size(2000);
-  targets = criterion_benchmark
+  config=Criterion::default().sample_size(1000);
+  targets = channel_options_benchmark
 );
 criterion_main!(benches);

@@ -11,6 +11,11 @@
 
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
+use futures;
+use tokio;
+use std::future::Future;
+use std::task::Poll;
+
 
 struct Thingy {
   a: Arc<Mutex<i32>>,
@@ -60,6 +65,8 @@ enum WorkerFuncs {
     GetA(),
     SetAndGetA(Sender<i32>, i32),
     SetAndGetNewChannel(Sender<Box<i32>>, i32),
+    SetAndGetNewOneshotChannelFutures(futures::channel::oneshot::Sender<Box<i32>>, i32),
+    SetAndGetNewOneshotChannelTokio(tokio::sync::oneshot::Sender<Box<i32>>, i32),
     SetAndGetUnsafe(i32),
 }
 enum WorkerReturns {
@@ -88,13 +95,17 @@ impl ThingyWorker {
                         send_ret.send(Box::new(WorkerReturns::SetAndGetA(thingy.set_and_get_a(i))),).unwrap()
                         //snd.send(thingy.set_and_get_a(i)).unwrap()
                     }
+                    WorkerFuncs::SetAndGetUnsafe(i) => {
+                        send_ret.send(Box::new(WorkerReturns::SetAndGetUnsafe(thingy.set_and_get_b(i)))).unwrap()
+                    }
                     WorkerFuncs::SetAndGetNewChannel(snd, i) => {
-                        //send_ret.send(Box::new(WorkerReturns::SetAndGetNewChannel(thingy.set_and_get_new_channel(i))),).unwrap()
                         snd.send(Box::new(thingy.set_and_get_b(i))).unwrap()
                     }
-                    WorkerFuncs::SetAndGetUnsafe(i) => {
-                        //send_ret.send(Box::new(WorkerReturns::SetAndGetNewChannel(thingy.set_and_get_new_channel(i))),).unwrap()
-                        send_ret.send(Box::new(WorkerReturns::SetAndGetUnsafe(thingy.set_and_get_b(i)))).unwrap()
+                    WorkerFuncs::SetAndGetNewOneshotChannelFutures(snd, i) => {
+                        snd.send(Box::new(thingy.set_and_get_b(i))).unwrap()
+                    }
+                    WorkerFuncs::SetAndGetNewOneshotChannelTokio(snd, i) => {
+                        snd.send(Box::new(thingy.set_and_get_b(i))).unwrap()
                     }
                 }
             }
@@ -104,20 +115,33 @@ impl ThingyWorker {
             ThingyController {
                 send: send_func,
                 recv: recv_ret,
+                //rt: tokio::runtime::Runtime::new().unwrap(), 
+                //rt: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+                rt: tokio::runtime::Builder::new_current_thread().build().unwrap(),
             },
         )
     }
 }
 
-#[derive(Clone, Debug)]
+//#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ThingyController {
     send: Sender<Box<WorkerFuncs>>,
     recv: Receiver<Box<WorkerReturns>>,
+    rt: tokio::runtime::Runtime,
 }
 
 impl ThingyController {
     pub fn controller_stop_thread(&self) {
         self.send.send(Box::new(WorkerFuncs::WorkerQuit())).unwrap();
+    }
+    pub fn controller_copy(&self) -> ThingyController {
+        ThingyController {
+            send: self.send.clone(),
+            recv: self.recv.clone(),
+            //rt: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+            rt: tokio::runtime::Builder::new_current_thread().build().unwrap(),
+        }
     }
     pub fn assert_false(&self) {
         self.send.send(Box::new(WorkerFuncs::AssertFalse())).unwrap();
@@ -144,17 +168,36 @@ impl ThingyController {
             _ => panic!("Invalid return type in inc_and_get_a\n(may be using Controller class across threads)"),
         }
     }
-    pub fn set_and_get_new_channel(&self, i: i32) -> i32 {
-        let (snd, rcv) = unbounded::<Box<i32>>();
-        self.send.send(Box::new(WorkerFuncs::SetAndGetNewChannel(snd, i))).unwrap();
-        *rcv.recv().unwrap()
-    }
     pub fn set_and_get_unsafe(&self, i: i32) -> i32 {
         self.send.send(Box::new(WorkerFuncs::SetAndGetUnsafe(i))).unwrap();
         match *self.recv.recv().unwrap() {
             WorkerReturns::SetAndGetUnsafe(ret) => ret,
             _ => panic!("Invalid return type in set_and_get_unsafe\n(may be using Controller class across threads)"),
         }
+    }
+    pub fn set_and_get_new_channel(&self, i: i32) -> i32 {
+        let (snd, rcv) = unbounded::<Box<i32>>();
+        self.send.send(Box::new(WorkerFuncs::SetAndGetNewChannel(snd, i))).unwrap();
+        *rcv.recv().unwrap()
+    }
+    pub fn set_and_get_new_oneshot_channel_futures(&self, i: i32) -> i32 {
+        let (snd, rcv) = futures::channel::oneshot::channel::<Box<i32>>();
+        self.send.send(Box::new(WorkerFuncs::SetAndGetNewOneshotChannelFutures(snd, i))).unwrap();
+        match futures::executor::block_on(async {
+          rcv.await
+        }) {
+          Ok(x) => *x,
+          Err(_) => panic!("AHHH"),
+        }
+    }
+    pub fn set_and_get_new_oneshot_channel_tokio(&self, i: i32) -> i32 {
+        let (snd, rcv) = tokio::sync::oneshot::channel::<Box<i32>>();
+        self.send.send(Box::new(WorkerFuncs::SetAndGetNewOneshotChannelTokio(snd, i))).unwrap();
+
+        self.rt
+          .block_on(async {
+            *rcv.await.unwrap()
+        })
     }
 }
 
