@@ -88,7 +88,6 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
   })
 }
 
-// TODO: JPB: Change all unwraps to proper error handling - maybe just .expect("<error msg>")
 // TODO: JPB: Make everything except the controller private
 // TODO: JPB: Make the original class's constructor create the worker?
 // TODO: JPB: Convert Worker::new into just a global function and delete the Worker class entirely OR merge it with the Controller
@@ -143,7 +142,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let mut controller_impl_output = Vec::new();
   controller_impl_output.push(format!("impl {class_name}Controller {{"));
   controller_impl_output.push(format!("pub fn controller_stop_thread(&self) {{"));
-  controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).unwrap();"));
+  controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
   controller_impl_output.push(format!("}}"));
 
   // Walk through original Impl functions
@@ -199,7 +198,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 ));
                 worker_impl_new_intro.push(format!("let handle = thread::spawn(move || {{"));
                 worker_impl_new_intro.push(format!("loop {{"));
-                worker_impl_new_intro.push(format!("match *recv_func.recv().unwrap() {{"));
+                worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
                 
                 worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
 
@@ -211,8 +210,8 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_outro.push(format!("}}"));
               } else if !method_is_static {
                 if method_is_blocking {
-                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new({}.{}({}))).unwrap(),",
-                    enum_name, enum_arg_names, object_name, method_name, method_arg_names
+                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new({}.{}({}))).expect(\"Failed to send return value of {} in Worker\"),",
+                    enum_name, enum_arg_names, object_name, method_name, method_arg_names, enum_name
                   ));
                 } else {
                   worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
@@ -229,8 +228,8 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     method_return_type_str
                   ));
                 }
-                controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).unwrap();",
-                  enum_name, enum_arg_names
+                controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).expect(\"Failed to send {} from Controller to Worker\");",
+                  enum_name, enum_arg_names, enum_name
                 ));
                 if method_is_blocking {
                   controller_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));

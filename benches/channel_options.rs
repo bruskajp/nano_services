@@ -72,7 +72,7 @@ impl ThingyWorker {
         let thingy = Thingy::new(a);
         let handle = thread::spawn(move || {
             loop {
-                match *recv_func.recv().unwrap() {
+                match *recv_func.recv().expect("AHH") {
                     WorkerFuncs::WorkerQuit() => break,
                     WorkerFuncs::AssertFalse() => thingy.assert_false(),
                     WorkerFuncs::PlusOneA() => thingy.plus_one_a(),
