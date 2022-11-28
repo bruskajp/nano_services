@@ -148,13 +148,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_arg_names = params_to_arg_names_string(method);
               let method_arg_types = params_to_arg_types_string(method);
               let method_return_type = returns_to_arg_types_string(method);
-              // TODO: JPB: Make method_return_type_str a function
               let method_return_type_str = match &method_return_type {
                 None => { format!("()") },
                 Some(return_type) => { format!("{}", return_type) }
               }; 
               
-              // TODO: JPB: Make enum_arg_types generate with its own method
               let mut enum_arg_types = method_arg_types.clone();
               let mut enum_arg_names = method_arg_names.clone();
 
