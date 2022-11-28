@@ -16,9 +16,11 @@ impl Thingy {
   pub fn assert_false(&self) {
     assert!(false);
   }
+
   pub fn plus_one_a(&self) {
     Thingy::plus_one_internal(&self.a);
   }
+
   pub fn inc_a(&self, i: i32) {
     *self.a.lock().unwrap() += i;
   }
@@ -27,9 +29,12 @@ impl Thingy {
     *a.lock().unwrap() += 1;
   }
 
+  #[blocking_method]
   pub fn get_a(&self) -> i32 {
     self.a.lock().unwrap().clone()
   }
+
+  #[blocking_method]
   pub fn set_and_get_a(&self, i: i32) -> i32 {
     *self.a.lock().unwrap() = i;
     self.a.lock().unwrap().clone()

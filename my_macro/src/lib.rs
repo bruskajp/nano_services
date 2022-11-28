@@ -71,12 +71,10 @@ fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
   }
 }
 
-// TODO: JPB: Change is_method_blocking to another way of determining if a method is blocking
 fn is_method_blocking(method: &ImplItemMethod) -> bool {
-  match &method.sig.output {
-    ReturnType::Default => false,
-    ReturnType::Type(_, _) => true,
-  }
+  method.attrs.iter()
+    .any(|x| x.path.segments.iter()
+    .any(|x| x.ident.to_string() == "blocking_method"))
 }
 
 fn is_method_static(method: &ImplItemMethod) -> bool {
@@ -160,7 +158,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_is_static = is_method_static(method);
               let method_is_constructor = method_name == "new";
 
-              println!("{} {}", method_name, method_is_blocking);
+              println!("{} ({})", method_name, if method_is_blocking {"blocking"} else {"non-blocking"});
 
               // Generate WorkerFuncs Enum
               if !method_is_constructor && !method_is_static {
@@ -204,6 +202,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                   worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
                     enum_name, enum_arg_names, object_name, method_name, method_arg_names
                   ));
+                  // TODO: JPB: Add check that the non-blocking function does not have a return type
                 }
               }
 
@@ -254,6 +253,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   ).parse().expect("Generated invalid tokens")
 }
 
+
+#[proc_macro_attribute]
+pub fn blocking_method(_args: TokenStream, input: TokenStream) -> TokenStream {
+  input
+}
 
 #[proc_macro_attribute]
 pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
