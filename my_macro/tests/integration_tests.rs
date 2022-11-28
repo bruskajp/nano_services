@@ -131,7 +131,7 @@ fn threading() {
   let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   
   let thingy_clone = thingy.clone();
-  let handle = thread::spawn(move || {
+  let handle = std::thread::spawn(move || {
     assert_eq!(thingy_clone.set_and_get_a(3), 3);
   });
 

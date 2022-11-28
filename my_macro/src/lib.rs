@@ -109,10 +109,8 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let object_name = class_name.to_case(Case::Camel);
 
   // Generate Includes
-  // TODO: JPB: Change includes to use full path (don't pollute the namespace)
   let mut includes_output = Vec::new();
-  includes_output.push(format!("use std::{{thread}};"));
-  includes_output.push(format!("use crossbeam_channel::{{unbounded, Sender, Receiver}};"));
+  includes_output.push(format!("use crossbeam_channel;"));
   includes_output.push(format!("use futures;"));
 
   // Generate WorkerFuncs Enum
@@ -135,7 +133,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let mut controller_struct_output = Vec::new();
   controller_struct_output.push(format!("#[derive(Clone, Debug)]"));
   controller_struct_output.push(format!("struct {class_name}Controller {{"));
-  controller_struct_output.push(format!("send: Sender<Box<WorkerFuncs>>,"));
+  controller_struct_output.push(format!("send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"));
   controller_struct_output.push(format!("}}"));
 
   // Generate Impl Controller
@@ -189,14 +187,14 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
               // Generate Impl ThingyWorker
               if method_is_constructor {
-                worker_impl_new_intro.push(format!("pub fn new({}) -> (thread::JoinHandle<()>, {}Controller) {{",
+                worker_impl_new_intro.push(format!("pub fn new({}) -> (std::thread::JoinHandle<()>, {}Controller) {{",
                   method_params, class_name
                 ));
-                worker_impl_new_intro.push(format!("let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();"));
+                worker_impl_new_intro.push(format!("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();"));
                 worker_impl_new_intro.push(format!("let {} = {}::new({});",
                   object_name, class_name, method_arg_names
                 ));
-                worker_impl_new_intro.push(format!("let handle = thread::spawn(move || {{"));
+                worker_impl_new_intro.push(format!("let handle = std::thread::spawn(move || {{"));
                 worker_impl_new_intro.push(format!("loop {{"));
                 worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
                 
