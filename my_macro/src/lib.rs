@@ -133,8 +133,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   worker_impl_output.push(format!("}}"));
 
   // Walk through original Impl functions
-  input
-  .items.iter().for_each(|item| {
+  input.items.iter().for_each(|item| {
     match item {
       ImplItem::Method(method) => {
           match method.vis { // Only expose public functions
@@ -160,8 +159,16 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
               println!("{} ({})", method_name, if method_is_blocking {"blocking"} else {"non-blocking"});
 
+              // Check for methods that are non-blocking and have a return type
+              if !method_is_static && !method_is_blocking {
+                if let Some(x) = method_return_type {
+                  panic!("Method {}::{} is a non-blocking method, but has a return type ({}). This is not allowed.",
+                    class_name, method_name, method_return_type_str);
+                }
+              }
+
               // Generate WorkerFuncs Enum
-              if !method_is_constructor && !method_is_static {
+              if !method_is_static {
                 if method_is_blocking {
                   enum_arg_types = format!("futures::channel::oneshot::Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
                   enum_arg_names = format!("send_ret, {}", method_arg_names);
@@ -202,12 +209,11 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                   worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
                     enum_name, enum_arg_names, object_name, method_name, method_arg_names
                   ));
-                  // TODO: JPB: Add check that the non-blocking function does not have a return type
                 }
               }
 
               // Generate Impl ThingyWorker
-              if !method_is_constructor && !method_is_static {
+              if !method_is_static {
                 worker_impl_output.push(format!("pub {} {{", method_signature));
                 if method_is_blocking {
                   worker_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{}>>();;", 
