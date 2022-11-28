@@ -88,9 +88,8 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
   })
 }
 
-// TODO: JPB: Make everything except the controller private
+// TODO: JPB: Make everything except the worker methods private (including the original class?)
 // TODO: JPB: Make the original class's constructor create the worker?
-// TODO: JPB: Convert Worker::new into just a global function and delete the Worker class entirely OR merge it with the Controller
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
@@ -120,28 +119,20 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
   // Generate Struct Worker
   let mut worker_struct_output = Vec::new();
-  worker_struct_output.push(format!("struct {class_name}Worker;"));
+  worker_struct_output.push(format!("#[derive(Clone, Debug)]"));
+  worker_struct_output.push(format!("struct {class_name}Worker {{"));
+  worker_struct_output.push(format!("send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"));
+  worker_struct_output.push(format!("}}"));
 
   // Generate Impl Worker
   let mut worker_impl_output = Vec::new();
-  worker_impl_output.push(format!("impl {class_name}Worker {{"));
   let mut worker_impl_new_intro = Vec::new();
   let mut worker_impl_new_match = Vec::new();
   let mut worker_impl_new_outro = Vec::new();
-
-  // Generate Struct Controller
-  let mut controller_struct_output = Vec::new();
-  controller_struct_output.push(format!("#[derive(Clone, Debug)]"));
-  controller_struct_output.push(format!("struct {class_name}Controller {{"));
-  controller_struct_output.push(format!("send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"));
-  controller_struct_output.push(format!("}}"));
-
-  // Generate Impl Controller
-  let mut controller_impl_output = Vec::new();
-  controller_impl_output.push(format!("impl {class_name}Controller {{"));
-  controller_impl_output.push(format!("pub fn controller_stop_thread(&self) {{"));
-  controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
-  controller_impl_output.push(format!("}}"));
+  worker_impl_output.push(format!("impl {class_name}Worker {{"));
+  worker_impl_output.push(format!("pub fn stop_thread(&self) {{"));
+  worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
+  worker_impl_output.push(format!("}}"));
 
   // Walk through original Impl functions
   input
@@ -187,8 +178,8 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
               // Generate Impl ThingyWorker
               if method_is_constructor {
-                worker_impl_new_intro.push(format!("pub fn new({}) -> (std::thread::JoinHandle<()>, {}Controller) {{",
-                  method_params, class_name
+                worker_impl_new_intro.push(format!("pub fn new({}) -> (std::thread::JoinHandle<()>, Self) {{",
+                  method_params
                 ));
                 worker_impl_new_intro.push(format!("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();"));
                 worker_impl_new_intro.push(format!("let {} = {}::new({});",
@@ -204,7 +195,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}}"));
                 worker_impl_new_outro.push(format!("}});"));
-                worker_impl_new_outro.push(format!("(handle, {}Controller {{send: send_func}})", class_name));
+                worker_impl_new_outro.push(format!("(handle, Self {{send: send_func}})"));
                 worker_impl_new_outro.push(format!("}}"));
               } else if !method_is_static {
                 if method_is_blocking {
@@ -218,24 +209,24 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
               }
 
-              // Generate Impl ThingyController
+              // Generate Impl ThingyWorker
               if !method_is_constructor && !method_is_static {
-                controller_impl_output.push(format!("pub {} {{", method_signature));
+                worker_impl_output.push(format!("pub {} {{", method_signature));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{}>>();;", 
+                  worker_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{}>>();;", 
                     method_return_type_str
                   ));
                 }
-                controller_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).expect(\"Failed to send {} from Controller to Worker\");",
+                worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).expect(\"Failed to send {} to Worker\");",
                   enum_name, enum_arg_names, enum_name
                 ));
                 if method_is_blocking {
-                  controller_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
-                  controller_impl_output.push(format!("Ok(x) => *x,"));
-                  controller_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {}\"),", method_name));
-                  controller_impl_output.push(format!("}}"));
+                  worker_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
+                  worker_impl_output.push(format!("Ok(x) => *x,"));
+                  worker_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {}\"),", method_name));
+                  worker_impl_output.push(format!("}}"));
                 }
-                controller_impl_output.push(format!("}}"));
+                worker_impl_output.push(format!("}}"));
               }
             }
             _ => {}
@@ -254,19 +245,14 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   worker_impl_output.push(worker_impl_new_outro.join("\n"));
   worker_impl_output.push(format!("}}"));
 
-  // Generate Impl Controller
-  controller_impl_output.push(format!("}}"));
-
   //println!("----------------------------");
 
-  format!("{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+  format!("{}\n{}\n{}\n{}\n{}\n",
     item,
     includes_output.join("\n"),
     funcs_enum_output.join("\n"),
     worker_struct_output.join("\n"),
-    worker_impl_output.join("\n"),
-    controller_struct_output.join("\n"),
-    controller_impl_output.join("\n")
+    worker_impl_output.join("\n")
   ).parse().expect("Generated invalid tokens")
 }
 

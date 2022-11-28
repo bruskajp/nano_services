@@ -68,42 +68,42 @@ enum WorkerReturns {
     SetAndGetA(i32),
     SetAndGetB(i32),
 }
-struct ThingyWorker;
-impl ThingyWorker {
-    pub fn new(a: Arc<Mutex<i32>>) -> (thread::JoinHandle<()>, ThingyController) {
-        let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();
-        let (send_ret, recv_ret) = unbounded::<Box<WorkerReturns>>();
-        let thingy = Thingy::new(a);
-        let handle = thread::spawn(move || {
-            loop {
-                match *recv_func.recv().unwrap() {
-                    WorkerFuncs::WorkerQuit() => break,
-                    WorkerFuncs::AssertFalse() => thingy.assert_false(),
-                    WorkerFuncs::PlusOneA() => thingy.plus_one_a(),
-                    WorkerFuncs::IncA(i) => thingy.inc_a(i),
-                    WorkerFuncs::GetA() => {
-                        send_ret.send(Box::new(WorkerReturns::GetA(thingy.get_a()))).unwrap()
-                    }
-                    WorkerFuncs::SetAndGetA(snd, i) => {
-                        send_ret.send(Box::new(WorkerReturns::SetAndGetA(thingy.set_and_get_a(i))),).unwrap()
-                        //snd.send(thingy.set_and_get_a(i)).unwrap()
-                    }
-                    WorkerFuncs::SetAndGetB(snd, i) => {
-                        //send_ret.send(Box::new(WorkerReturns::SetAndGetB(thingy.set_and_get_b(i))),).unwrap()
-                        snd.send(thingy.set_and_get_b(i)).unwrap()
-                    }
-                }
-            }
-        });
-        (
-            handle,
-            ThingyController {
-                send: send_func,
-                recv: recv_ret,
-            },
-        )
-    }
-}
+//struct ThingyWorker;
+//impl ThingyWorker {
+//    pub fn new(a: Arc<Mutex<i32>>) -> (thread::JoinHandle<()>, ThingyController) {
+//        let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();
+//        let (send_ret, recv_ret) = unbounded::<Box<WorkerReturns>>();
+//        let thingy = Thingy::new(a);
+//        let handle = thread::spawn(move || {
+//            loop {
+//                match *recv_func.recv().unwrap() {
+//                    WorkerFuncs::WorkerQuit() => break,
+//                    WorkerFuncs::AssertFalse() => thingy.assert_false(),
+//                    WorkerFuncs::PlusOneA() => thingy.plus_one_a(),
+//                    WorkerFuncs::IncA(i) => thingy.inc_a(i),
+//                    WorkerFuncs::GetA() => {
+//                        send_ret.send(Box::new(WorkerReturns::GetA(thingy.get_a()))).unwrap()
+//                    }
+//                    WorkerFuncs::SetAndGetA(snd, i) => {
+//                        send_ret.send(Box::new(WorkerReturns::SetAndGetA(thingy.set_and_get_a(i))),).unwrap()
+//                        //snd.send(thingy.set_and_get_a(i)).unwrap()
+//                    }
+//                    WorkerFuncs::SetAndGetB(snd, i) => {
+//                        //send_ret.send(Box::new(WorkerReturns::SetAndGetB(thingy.set_and_get_b(i))),).unwrap()
+//                        snd.send(thingy.set_and_get_b(i)).unwrap()
+//                    }
+//                }
+//            }
+//        });
+//        (
+//            handle,
+//            ThingyController {
+//                send: send_func,
+//                recv: recv_ret,
+//            },
+//        )
+//    }
+//}
 
 #[derive(Clone, Debug)]
 struct ThingyController {
@@ -151,9 +151,45 @@ impl ThingyController {
     }
 }
 
+impl ThingyController {
+  pub fn new(a: Arc<Mutex<i32>>) -> (thread::JoinHandle<()>, Self) {
+        let (send_func, recv_func) = unbounded::<Box<WorkerFuncs>>();
+        let (send_ret, recv_ret) = unbounded::<Box<WorkerReturns>>();
+        let thingy = Thingy::new(a);
+        let handle = thread::spawn(move || {
+            loop {
+                match *recv_func.recv().unwrap() {
+                    WorkerFuncs::WorkerQuit() => break,
+                    WorkerFuncs::AssertFalse() => thingy.assert_false(),
+                    WorkerFuncs::PlusOneA() => thingy.plus_one_a(),
+                    WorkerFuncs::IncA(i) => thingy.inc_a(i),
+                    WorkerFuncs::GetA() => {
+                        send_ret.send(Box::new(WorkerReturns::GetA(thingy.get_a()))).unwrap()
+                    }
+                    WorkerFuncs::SetAndGetA(snd, i) => {
+                        send_ret.send(Box::new(WorkerReturns::SetAndGetA(thingy.set_and_get_a(i))),).unwrap()
+                        //snd.send(thingy.set_and_get_a(i)).unwrap()
+                    }
+                    WorkerFuncs::SetAndGetB(snd, i) => {
+                        //send_ret.send(Box::new(WorkerReturns::SetAndGetB(thingy.set_and_get_b(i))),).unwrap()
+                        snd.send(thingy.set_and_get_b(i)).unwrap()
+                    }
+                }
+            }
+        });
+        (
+            handle,
+            Self {
+                send: send_func,
+                recv: recv_ret,
+            },
+        )
+    }
+}
+
 fn main() {
   let counter = Arc::new(Mutex::new(-1));
-  let (thingy_handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
+  let (thingy_handle, thingy) = ThingyController::new(Arc::clone(&counter));
 
   let thingy_clone = thingy.clone();
   let handle = thread::spawn(move || {

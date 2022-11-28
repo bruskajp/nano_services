@@ -40,7 +40,7 @@ impl Thingy {
 fn create_and_close_worker() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
   assert_eq!(*counter.lock().unwrap(), 0);
@@ -52,7 +52,7 @@ fn assert_false_in_worker() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   thingy.assert_false();
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
 }
 
@@ -61,7 +61,7 @@ fn worker_method_no_args() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   thingy.plus_one_a();
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
   assert_eq!(*counter.lock().unwrap(), 1);
@@ -72,7 +72,7 @@ fn worker_method_with_args() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   thingy.inc_a(3);
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
   assert_eq!(*counter.lock().unwrap(), 3);
@@ -83,7 +83,7 @@ fn worker_blocking_method_no_args() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   assert_eq!(thingy.get_a(), 0);
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
 }
@@ -93,7 +93,7 @@ fn worker_blocking_method_with_args() {
   let counter = Arc::new(Mutex::new(-1));
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   assert_eq!(thingy.set_and_get_a(3), 3);
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
 }
@@ -104,7 +104,7 @@ fn worker_check_ordering() {
   let (handle, thingy) = ThingyWorker::new(Arc::clone(&counter));
   thingy.inc_a(3);
   assert_eq!(thingy.get_a(), 3);
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
   
 }
@@ -116,7 +116,7 @@ fn worker_check_ordering2() {
   assert_eq!(thingy.set_and_get_a(3), 3);
   assert_eq!(thingy.set_and_get_a(6), 6);
   assert_eq!(thingy.set_and_get_a(9), 9);
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   handle.join().unwrap();
 }
 
@@ -138,6 +138,6 @@ fn threading() {
   assert_eq!(thingy.set_and_get_a(6), 6);
 
   handle.join().unwrap();
-  thingy.controller_stop_thread();
+  thingy.stop_thread();
   thingy_handle.join().unwrap();
 }
