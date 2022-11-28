@@ -5,6 +5,7 @@
 // 1) All functions must use owned passing (no references) for thread safety (stop deadlocks)
 // 2) The original class (Thingy) must have a constructor ("new" function)
 // 3) The worker is created by calling <original_class_name>Worker::new()
+// 4) Methods are not allowed to be non-blocking and have a return value (no promises)
 // ------------------------------------
 
 extern crate proc_macro;
@@ -88,6 +89,8 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
 
 // TODO: JPB: Make everything except the worker methods private (including the original class?)
 // TODO: JPB: Make the original class's constructor create the worker?
+// TODO: JPB: Convert all string parsing into token streams
+// TODO: JPB: Add check that class has a "new" method
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
