@@ -90,7 +90,6 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
 // TODO: JPB: Make everything except the worker methods private (including the original class?)
 // TODO: JPB: Make the original class's constructor create the worker?
 // TODO: JPB: Convert all string parsing into token streams
-// TODO: JPB: Add check that class has a "new" method
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
@@ -135,6 +134,24 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
   worker_impl_output.push(format!("}}"));
 
+  // Check that the class has a public "new" method
+  let mut new_exists : bool = false;
+  if !input.items.iter().any(|item| {
+    if let ImplItem::Method(method) = item {
+      let method_is_new = method.sig.ident.to_string() == "new";
+      let method_is_public = match method.vis { Visibility::Public(_) => true, _ => false };
+      new_exists |= method.sig.ident.to_string() == "new";
+      println!("{} {method_is_new} {method_is_public}", method.sig.ident.to_string());
+      method_is_new && method_is_public
+    } else { false }
+  }) {
+    if new_exists {
+      panic!("The \"{class_name}\" class has a private \"new\" method. All #[worker] classes must have a public \"new\" method. Please make your \"new\" method public.");
+    } else {
+      panic!("The \"{class_name}\" class does not have a public \"new\" method. All #[worker] classes must have a public \"new\" method. Please create a public \"new\" method.");
+    }
+  }
+
   // Walk through original Impl functions
   input.items.iter().for_each(|item| {
     match item {
@@ -160,11 +177,12 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_is_static = is_method_static(method);
               let method_is_constructor = method_name == "new";
 
+              // Debug Info
               println!("{} ({})", method_name, if method_is_blocking {"blocking"} else {"non-blocking"});
 
               // Check for methods that are non-blocking and have a return type
               if !method_is_static && !method_is_blocking {
-                if let Some(x) = method_return_type {
+                if let Some(_) = method_return_type {
                   panic!("Method {}::{} is a non-blocking method, but has a return type ({}). This is not allowed.",
                     class_name, method_name, method_return_type_str);
                 }
