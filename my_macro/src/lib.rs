@@ -1,4 +1,3 @@
-
 // ------------------------------------
 // API NOTES
 //
@@ -10,81 +9,90 @@
 
 extern crate proc_macro;
 
+use convert_case::{Case, Casing};
 use proc_macro::*;
 use syn::*;
-use convert_case::{Case, Casing};
 
 // Must use this until "proc_macro_quote" becomes stable
-// At which point replace to_token_stream() with quote!(#method).to_string(); 
+// At which point replace to_token_stream() with quote!(#method).to_string();
 // Or convert this whole thing into using Tokens entirely
 // This can be done slowly by still using to_token_stream in intermediate steps
-use syn::__private::ToTokens; 
+use syn::__private::ToTokens;
 
 fn params_to_arg_types_string(method: &ImplItemMethod) -> String {
-  method.sig.inputs.pairs().fold(String::new(), |cur, next| {
-    let symbols = match next.value() {
-      FnArg::Receiver(_) => { "".to_string() },
-      FnArg::Typed(ty) => match &*ty.ty {
-        Type::Path(path) => {
-          format!("{}",
-            path.path.segments.pairs().fold(String::new(),
-              |cur, next| { cur + &next.value().ident.to_string() } 
-            )
-          )
-        },
-        _ => "INVALID_TYPE_IN_FUNCTION_ARG_TYPES".to_string(),
-      }
-    };
+    method.sig.inputs.pairs().fold(String::new(), |cur, next| {
+        let symbols = match next.value() {
+            FnArg::Receiver(_) => "".to_string(),
+            FnArg::Typed(ty) => match &*ty.ty {
+                Type::Path(path) => {
+                    format!(
+                        "{}",
+                        path.path.segments.pairs().fold(String::new(), |cur, next| {
+                            cur + &next.value().ident.to_string()
+                        })
+                    )
+                }
+                _ => "INVALID_TYPE_IN_FUNCTION_ARG_TYPES".to_string(),
+            },
+        };
 
-    if cur.is_empty() { symbols }
-    else { cur + ", " + &symbols }
-  })
+        if cur.is_empty() {
+            symbols
+        } else {
+            cur + ", " + &symbols
+        }
+    })
 }
 
 fn params_to_arg_names_string(method: &ImplItemMethod) -> String {
-  method.sig.inputs.pairs().fold(String::new(), |cur, next| {
-    let symbols = match next.value() {
-      FnArg::Receiver(_) => { "".to_string() },
-      FnArg::Typed(ty) => match &*ty.pat {
-        Pat::Ident(ident) => {ident.ident.to_string()},
-        _ => "INVALID_TYPE_IN_FUNCTION_ARG_NAMES".to_string(),
-      }
-    };
+    method.sig.inputs.pairs().fold(String::new(), |cur, next| {
+        let symbols = match next.value() {
+            FnArg::Receiver(_) => "".to_string(),
+            FnArg::Typed(ty) => match &*ty.pat {
+                Pat::Ident(ident) => ident.ident.to_string(),
+                _ => "INVALID_TYPE_IN_FUNCTION_ARG_NAMES".to_string(),
+            },
+        };
 
-    if cur.is_empty() { symbols }
-    else { cur + ", " + &symbols }
-  })
+        if cur.is_empty() {
+            symbols
+        } else {
+            cur + ", " + &symbols
+        }
+    })
 }
 
 fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
-  match &method.sig.output {
-    ReturnType::Default => None,
-    ReturnType::Type(_, ty) => match &**ty {
-      Type::Path(path) => {
-        Some(format!("{}",
-          path.path.segments.pairs().fold(String::new(),
-            |cur, next| { cur + &next.value().ident.to_string() } 
-          )
-        ))
-      },
-      _ => Some("INVALID_TYPE_IN_FUNCTION_RETURN".to_string()),
+    match &method.sig.output {
+        ReturnType::Default => None,
+        ReturnType::Type(_, ty) => match &**ty {
+            Type::Path(path) => Some(format!(
+                "{}",
+                path.path.segments.pairs().fold(String::new(), |cur, next| {
+                    cur + &next.value().ident.to_string()
+                })
+            )),
+            _ => Some("INVALID_TYPE_IN_FUNCTION_RETURN".to_string()),
+        },
     }
-  }
 }
 
 fn is_method_blocking(method: &ImplItemMethod) -> bool {
-  method.attrs.iter()
-    .any(|x| x.path.segments.iter()
-    .any(|x| x.ident.to_string() == "blocking_method"))
+    method.attrs.iter().any(|x| {
+        x.path
+            .segments
+            .iter()
+            .any(|x| x.ident.to_string() == "blocking_method")
+    })
 }
 
 fn is_method_static(method: &ImplItemMethod) -> bool {
-  method.sig.inputs.pairs().fold(true, |cur, next| {
-    cur && match next.value() {
-      FnArg::Receiver(_) => false,
-      FnArg::Typed(_) => true,
-    }
-  })
+    method.sig.inputs.pairs().fold(true, |cur, next| {
+        cur && match next.value() {
+            FnArg::Receiver(_) => false,
+            FnArg::Typed(_) => true,
+        }
+    })
 }
 
 // TODO: JPB: (feature) Make everything except the worker methods private (including the original class?)
@@ -94,74 +102,85 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
 // TODO: JPB: (QOL) Change "Worker" to "NanoService"
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
-  let input = item.clone();
-  let input = parse_macro_input!(input as ItemImpl);
+    let input = item.clone();
+    let input = parse_macro_input!(input as ItemImpl);
 
-  let class_name = match *input.self_ty {
-    Type::Path(path) => {
-      format!("{}",
-        path.path.segments.pairs().fold(String::new(),
-          |cur, next| { cur + &next.value().ident.to_string() } 
-        )
-      )
-    },
-    _ => "INVALID_TYPE_FOR_IMPL_NAME".to_string(),
-  };
-  let object_name = class_name.to_case(Case::Camel);
+    let class_name = match *input.self_ty {
+        Type::Path(path) => {
+            format!(
+                "{}",
+                path.path.segments.pairs().fold(String::new(), |cur, next| {
+                    cur + &next.value().ident.to_string()
+                })
+            )
+        }
+        _ => "INVALID_TYPE_FOR_IMPL_NAME".to_string(),
+    };
+    let object_name = class_name.to_case(Case::Camel);
 
-  // Generate Includes
-  let mut includes_output = Vec::new();
-  includes_output.push(format!("use crossbeam_channel;"));
-  includes_output.push(format!("use futures;"));
+    // Generate Includes
+    let mut includes_output = Vec::new();
+    includes_output.push(format!("use crossbeam_channel;"));
+    includes_output.push(format!("use futures;"));
 
-  // Generate WorkerFuncs Enum
-  let mut funcs_enum_output = Vec::new();
-  funcs_enum_output.push(format!("enum WorkerFuncs {{"));
-  funcs_enum_output.push(format!("WorkerQuit(),"));
+    // Generate WorkerFuncs Enum
+    let mut funcs_enum_output = Vec::new();
+    funcs_enum_output.push(format!("enum WorkerFuncs {{"));
+    funcs_enum_output.push(format!("WorkerQuit(),"));
 
-  // Generate Struct Worker
-  let mut worker_struct_output = Vec::new();
-  worker_struct_output.push(format!("#[derive(Clone, Debug)]"));
-  worker_struct_output.push(format!("struct {class_name}Worker {{"));
-  worker_struct_output.push(format!("send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"));
-  worker_struct_output.push(format!("}}"));
+    // Generate Struct Worker
+    let mut worker_struct_output = Vec::new();
+    worker_struct_output.push(format!("#[derive(Clone, Debug)]"));
+    worker_struct_output.push(format!("struct {class_name}Worker {{"));
+    worker_struct_output.push(format!(
+        "send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"
+    ));
+    worker_struct_output.push(format!("}}"));
 
-  // Generate Impl Worker
-  let mut worker_impl_output = Vec::new();
-  let mut worker_impl_new_intro = Vec::new();
-  let mut worker_impl_new_match = Vec::new();
-  let mut worker_impl_new_outro = Vec::new();
-  worker_impl_output.push(format!("impl {class_name}Worker {{"));
-  worker_impl_output.push(format!("pub fn stop_thread(&self) {{"));
-  worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
-  worker_impl_output.push(format!("}}"));
+    // Generate Impl Worker
+    let mut worker_impl_output = Vec::new();
+    let mut worker_impl_new_intro = Vec::new();
+    let mut worker_impl_new_match = Vec::new();
+    let mut worker_impl_new_outro = Vec::new();
+    worker_impl_output.push(format!("impl {class_name}Worker {{"));
+    worker_impl_output.push(format!("pub fn stop_thread(&self) {{"));
+    worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
+    worker_impl_output.push(format!("}}"));
 
-  // Check that the class has a public "new" method
-  let mut new_exists : bool = false;
-  if !input.items.iter().any(|item| {
-    if let ImplItem::Method(method) = item {
-      let method_is_new = method.sig.ident.to_string() == "new";
-      let method_is_public = match method.vis { Visibility::Public(_) => true, _ => false };
-      new_exists |= method.sig.ident.to_string() == "new";
-      println!("{} {method_is_new} {method_is_public}", method.sig.ident.to_string());
-      method_is_new && method_is_public
-    } else { false }
-  }) {
-    if new_exists {
-      panic!("The \"{class_name}\" class has a private \"new\" method. All #[worker] classes must have a public \"new\" method. Please make your \"new\" method public.");
-    } else {
-      panic!("The \"{class_name}\" class does not have a public \"new\" method. All #[worker] classes must have a public \"new\" method. Please create a public \"new\" method.");
+    // Check that the class has a public "new" method
+    let mut new_exists: bool = false;
+    if !input.items.iter().any(|item| {
+        if let ImplItem::Method(method) = item {
+            let method_is_new = method.sig.ident.to_string() == "new";
+            let method_is_public = match method.vis {
+                Visibility::Public(_) => true,
+                _ => false,
+            };
+            new_exists |= method.sig.ident.to_string() == "new";
+            println!(
+                "{} {method_is_new} {method_is_public}",
+                method.sig.ident.to_string()
+            );
+            method_is_new && method_is_public
+        } else {
+            false
+        }
+    }) {
+        if new_exists {
+            panic!("The \"{class_name}\" class has a private \"new\" method. All #[worker] classes must have a public \"new\" method. Please make your \"new\" method public.");
+        } else {
+            panic!("The \"{class_name}\" class does not have a public \"new\" method. All #[worker] classes must have a public \"new\" method. Please create a public \"new\" method.");
+        }
     }
-  }
 
-  // Walk through original Impl functions
-  input.items.iter().for_each(|item| {
+    // Walk through original Impl functions
+    input.items.iter().for_each(|item| {
     match item {
       ImplItem::Method(method) => {
           match method.vis { // Only expose public functions
             Visibility::Public(_) => {
               let method_name = method.sig.ident.to_string();
-              let method_signature = method.sig.to_token_stream().to_string(); 
+              let method_signature = method.sig.to_token_stream().to_string();
               let method_params = method.sig.inputs.to_token_stream().to_string();
               let enum_name = method_name.to_case(Case::UpperCamel);
               let method_arg_names = params_to_arg_names_string(method);
@@ -170,8 +189,8 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
               let method_return_type_str = match &method_return_type {
                 None => { format!("()") },
                 Some(return_type) => { format!("{}", return_type) }
-              }; 
-              
+              };
+
               let mut enum_arg_types = method_arg_types.clone();
               let mut enum_arg_names = method_arg_names.clone();
 
@@ -214,7 +233,7 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 worker_impl_new_intro.push(format!("let handle = std::thread::spawn(move || {{"));
                 worker_impl_new_intro.push(format!("loop {{"));
                 worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
-                
+
                 worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
 
                 worker_impl_new_outro.push(format!(""));
@@ -262,48 +281,51 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
   });
 
-  // Generate WorkerFuncs Enum
-  funcs_enum_output.push(format!("}}"));
+    // Generate WorkerFuncs Enum
+    funcs_enum_output.push(format!("}}"));
 
-  // Generate Impl Worker
-  worker_impl_output.push(worker_impl_new_intro.join("\n"));
-  worker_impl_output.push(worker_impl_new_match.join("\n"));
-  worker_impl_output.push(worker_impl_new_outro.join("\n"));
-  worker_impl_output.push(format!("}}"));
+    // Generate Impl Worker
+    worker_impl_output.push(worker_impl_new_intro.join("\n"));
+    worker_impl_output.push(worker_impl_new_match.join("\n"));
+    worker_impl_output.push(worker_impl_new_outro.join("\n"));
+    worker_impl_output.push(format!("}}"));
 
-  //println!("----------------------------");
+    //println!("----------------------------");
 
-  format!("{}\n{}\n{}\n{}\n{}\n",
-    item,
-    includes_output.join("\n"),
-    funcs_enum_output.join("\n"),
-    worker_struct_output.join("\n"),
-    worker_impl_output.join("\n")
-  ).parse().expect("Generated invalid tokens")
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n",
+        item,
+        includes_output.join("\n"),
+        funcs_enum_output.join("\n"),
+        worker_struct_output.join("\n"),
+        worker_impl_output.join("\n")
+    )
+    .parse()
+    .expect("Generated invalid tokens")
 }
-
 
 #[proc_macro_attribute]
 pub fn blocking_method(_args: TokenStream, input: TokenStream) -> TokenStream {
-  input
+    input
 }
 
 #[proc_macro_attribute]
 pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
-  let _input = input.clone();
-  let input = parse_macro_input!(input as ItemStruct);
+    let _input = input.clone();
+    let input = parse_macro_input!(input as ItemStruct);
 
-  //println!("----------------------------");
-  //println!("FIELDS:");
-  //input
-  //.fields
-  //.iter()
-  //.for_each(|field| { println!("{}", field.ident.as_ref().unwrap()); });
-  //println!("----------------------------");
+    //println!("----------------------------");
+    //println!("FIELDS:");
+    //input
+    //.fields
+    //.iter()
+    //.for_each(|field| { println!("{}", field.ident.as_ref().unwrap()); });
+    //println!("----------------------------");
 
-  let class_name = &input.ident;
+    let class_name = &input.ident;
 
-  let output = format!(r#"
+    let output = format!(
+        r#"
       {_input}
       impl {class_name} {{
         pub fn introspect(){{
@@ -311,23 +333,21 @@ pub fn intro(_args: TokenStream, input: TokenStream) -> TokenStream {
         }}
       }}
     "#
-  );
+    );
 
-  output.parse().expect("Generated invalid tokens")
+    output.parse().expect("Generated invalid tokens")
 }
-
 
 // ------------------------------------
 // UNIT TESTS
 
 #[cfg(test)]
 mod tests {
-  #[test]
-  fn basic_unit_test() {
-    assert_eq!(1, 1);
-  }
+    #[test]
+    fn basic_unit_test() {
+        assert_eq!(1, 1);
+    }
 }
-
 
 // ------------------------------------
 // HELPFUL STUFF
@@ -356,7 +376,7 @@ mod tests {
 //  Type::Verbatim(_) => {format!("15")},
 //}
 
-// macro on functions 
+// macro on functions
 // https://stackoverflow.com/questions/52585719/how-do-i-create-a-proc-macro-attribute
 
 // For a tutorial on how to implement a proc_macro_atrribute!!!
@@ -395,5 +415,3 @@ mod tests {
 
 // Capture stdio as macro for assert
 // https://users.rust-lang.org/t/how-to-test-functions-that-use-println/67188/5
-
-
