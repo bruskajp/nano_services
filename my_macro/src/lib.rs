@@ -87,9 +87,11 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
   })
 }
 
-// TODO: JPB: Make everything except the worker methods private (including the original class?)
-// TODO: JPB: Make the original class's constructor create the worker?
-// TODO: JPB: Convert all string parsing into token streams
+// TODO: JPB: (feature) Make everything except the worker methods private (including the original class?)
+// TODO: JPB: (feature) Make the original class's constructor create the worker?
+// TODO: JPB: (feature) Add the ability to use this method on traits as well
+// TODO: JPB: (feature) Add publish/subscribe feature (maybe as another proc_macro_aatribute)
+// TODO: JPB: (QOL) Change "Worker" to "NanoService"
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
   let input = item.clone();
