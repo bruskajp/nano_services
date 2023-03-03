@@ -7,10 +7,9 @@
 // 4) Methods are not allowed to be non-blocking and have a return value (no promises)
 // ------------------------------------
 
-extern crate proc_macro;
-
 use convert_case::{Case, Casing};
 use proc_macro::*;
+use proc_macro_error::*;
 use syn::*;
 
 // Must use this until "proc_macro_quote" becomes stable
@@ -24,14 +23,9 @@ fn params_to_arg_types_string(method: &ImplItemMethod) -> String {
         let symbols = match next.value() {
             FnArg::Receiver(_) => "".to_string(),
             FnArg::Typed(ty) => match &*ty.ty {
-                Type::Path(path) => {
-                    format!(
-                        "{}",
-                        path.path.segments.pairs().fold(String::new(), |cur, next| {
-                            cur + &next.value().ident.to_string()
-                        })
-                    )
-                }
+                Type::Path(path) => path.path.segments.pairs().fold(String::new(), |cur, next| {
+                    cur + &next.value().ident.to_string()
+                }),
                 _ => "INVALID_TYPE_IN_FUNCTION_ARG_TYPES".to_string(),
             },
         };
@@ -66,32 +60,27 @@ fn returns_to_arg_types_string(method: &ImplItemMethod) -> Option<String> {
     match &method.sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => match &**ty {
-            Type::Path(path) => Some(format!(
-                "{}",
-                path.path.segments.pairs().fold(String::new(), |cur, next| {
+            Type::Path(path) => {
+                Some(path.path.segments.pairs().fold(String::new(), |cur, next| {
                     cur + &next.value().ident.to_string()
-                })
-            )),
+                }))
+            }
             _ => Some("INVALID_TYPE_IN_FUNCTION_RETURN".to_string()),
         },
     }
 }
 
 fn is_method_blocking(method: &ImplItemMethod) -> bool {
-    method.attrs.iter().any(|x| {
-        x.path
-            .segments
-            .iter()
-            .any(|x| x.ident.to_string() == "blocking_method")
-    })
+    method
+        .attrs
+        .iter()
+        .any(|x| x.path.segments.iter().any(|x| x.ident == "blocking_method"))
 }
 
 fn is_method_static(method: &ImplItemMethod) -> bool {
-    method.sig.inputs.pairs().fold(true, |cur, next| {
-        cur && match next.value() {
-            FnArg::Receiver(_) => false,
-            FnArg::Typed(_) => true,
-        }
+    method.sig.inputs.pairs().all(|next| match next.value() {
+        FnArg::Receiver(_) => false,
+        FnArg::Typed(_) => true,
     })
 }
 
@@ -100,22 +89,19 @@ fn is_method_static(method: &ImplItemMethod) -> bool {
 // TODO: JPB: (feature) Add the ability to use this method on traits as well
 // TODO: JPB: (feature) Add publish/subscribe feature (maybe as another proc_macro_aatribute)
 // TODO: JPB: (QOL) Change "Worker" to "NanoService"
+#[proc_macro_error]
 #[proc_macro_attribute]
 pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = item.clone();
     let input = parse_macro_input!(input as ItemImpl);
 
-    let class_name = match *input.self_ty {
-        Type::Path(path) => {
-            format!(
-                "{}",
-                path.path.segments.pairs().fold(String::new(), |cur, next| {
-                    cur + &next.value().ident.to_string()
-                })
-            )
-        }
-        _ => "INVALID_TYPE_FOR_IMPL_NAME".to_string(),
+    let Type::Path(path) = &*input.self_ty else {
+        abort!(input.self_ty, "Invalid type for impl name");
     };
+
+    let class_name = path.path.segments.pairs().fold(String::new(), |cur, next| {
+        cur + &next.value().ident.to_string()
+    });
     let object_name = class_name.to_case(Case::Camel);
 
     // Generate Includes
@@ -148,138 +134,111 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
     worker_impl_output.push(format!("}}"));
 
     // Check that the class has a public "new" method
-    let mut new_exists: bool = false;
-    if !input.items.iter().any(|item| {
+    let mut new_exists = false;
+    let mut pub_new_exists = false;
+    for item in &input.items {
         if let ImplItem::Method(method) = item {
-            let method_is_new = method.sig.ident.to_string() == "new";
-            let method_is_public = match method.vis {
-                Visibility::Public(_) => true,
-                _ => false,
-            };
-            new_exists |= method.sig.ident.to_string() == "new";
-            println!(
-                "{} {method_is_new} {method_is_public}",
-                method.sig.ident.to_string()
-            );
-            method_is_new && method_is_public
-        } else {
-            false
+            let method_is_new = method.sig.ident == "new";
+            let method_is_public = matches!(method.vis, Visibility::Public(_));
+            new_exists |= method_is_new;
+            pub_new_exists |= method_is_new && method_is_public;
+            if pub_new_exists {
+                break;
+            }
         }
-    }) {
-        if new_exists {
-            panic!("The \"{class_name}\" class has a private \"new\" method. All #[worker] classes must have a public \"new\" method. Please make your \"new\" method public.");
-        } else {
-            panic!("The \"{class_name}\" class does not have a public \"new\" method. All #[worker] classes must have a public \"new\" method. Please create a public \"new\" method.");
-        }
+    }
+    if !new_exists {
+        emit_error!(input, "The \"{class_name}\" class does not have a public \"new\" method. All #[worker] classes must have a public \"new\" method. Please create a public \"new\" method.");
+    } else if !pub_new_exists {
+        emit_error!(input, "The \"{class_name}\" class has a private \"new\" method. All #[worker] classes must have a public \"new\" method. Please make your \"new\" method public.");
     }
 
     // Walk through original Impl functions
     input.items.iter().for_each(|item| {
-    match item {
-      ImplItem::Method(method) => {
-          match method.vis { // Only expose public functions
-            Visibility::Public(_) => {
-              let method_name = method.sig.ident.to_string();
-              let method_signature = method.sig.to_token_stream().to_string();
-              let method_params = method.sig.inputs.to_token_stream().to_string();
-              let enum_name = method_name.to_case(Case::UpperCamel);
-              let method_arg_names = params_to_arg_names_string(method);
-              let method_arg_types = params_to_arg_types_string(method);
-              let method_return_type = returns_to_arg_types_string(method);
-              let method_return_type_str = match &method_return_type {
-                None => { format!("()") },
-                Some(return_type) => { format!("{}", return_type) }
-              };
+      let ImplItem::Method(method) = item else {
+        abort!(item, "Non-method found inside impl block. Only methods are allowed in impl blocks.");
+      };
 
-              let mut enum_arg_types = method_arg_types.clone();
-              let mut enum_arg_names = method_arg_names.clone();
+      if let Visibility::Public(_) = method.vis { // Only expose public functions
+        let method_name = method.sig.ident.to_string();
+        let method_signature = method.sig.to_token_stream().to_string();
+        let method_params = method.sig.inputs.to_token_stream().to_string();
+        let enum_name = method_name.to_case(Case::UpperCamel);
+        let method_arg_names = params_to_arg_names_string(method);
+        let method_arg_types = params_to_arg_types_string(method);
+        let method_return_type = returns_to_arg_types_string(method);
+        let method_return_type_str = match &method_return_type {
+          None => "()",
+          Some(return_type) => return_type,
+        };
 
-              let method_is_blocking = is_method_blocking(method);
-              let method_is_static = is_method_static(method);
-              let method_is_constructor = method_name == "new";
+        let mut enum_arg_types = method_arg_types.clone();
+        let mut enum_arg_names = method_arg_names.clone();
 
-              // Debug Info
-              println!("{} ({})", method_name, if method_is_blocking {"blocking"} else {"non-blocking"});
+        let method_is_blocking = is_method_blocking(method);
+        let method_is_static = is_method_static(method);
+        let method_is_constructor = method_name == "new";
 
-              // Check for methods that are non-blocking and have a return type
-              if !method_is_static && !method_is_blocking {
-                if let Some(_) = method_return_type {
-                  panic!("Method {}::{} is a non-blocking method, but has a return type ({}). This is not allowed.",
-                    class_name, method_name, method_return_type_str);
-                }
-              }
+        // Debug Info
+        println!("{} ({})", method_name, if method_is_blocking {"blocking"} else {"non-blocking"});
 
-              // Generate WorkerFuncs Enum
-              if !method_is_static {
-                if method_is_blocking {
-                  enum_arg_types = format!("futures::channel::oneshot::Sender<Box<{}>>, {}", method_return_type_str, method_arg_types);
-                  enum_arg_names = format!("send_ret, {}", method_arg_names);
-                };
+        // Check for methods that are non-blocking and have a return type
+        if !method_is_static && !method_is_blocking && method_return_type.is_some() {
+          emit_error!(method.sig, "Method {class_name}::{method_name} is a non-blocking method, but has a return type ({method_return_type_str}). This is not allowed.");
+        }
 
-                funcs_enum_output.push(format!("{}({}),",
-                  enum_name, enum_arg_types,
-                ));
-              }
+        // Generate WorkerFuncs Enum
+        if !method_is_static {
+          if method_is_blocking {
+            enum_arg_types = format!("futures::channel::oneshot::Sender<Box<{method_return_type_str}>>, {method_arg_types}");
+            enum_arg_names = format!("send_ret, {method_arg_names}");
+          };
 
-              // Generate Impl ThingyWorker
-              if method_is_constructor {
-                worker_impl_new_intro.push(format!("pub fn new({}) -> (std::thread::JoinHandle<()>, Self) {{",
-                  method_params
-                ));
-                worker_impl_new_intro.push(format!("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();"));
-                worker_impl_new_intro.push(format!("let {} = {}::new({});",
-                  object_name, class_name, method_arg_names
-                ));
-                worker_impl_new_intro.push(format!("let handle = std::thread::spawn(move || {{"));
-                worker_impl_new_intro.push(format!("loop {{"));
-                worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
+          funcs_enum_output.push(format!("{enum_name}({enum_arg_types}),"));
+        }
 
-                worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
+        // Generate Impl ThingyWorker
+        if method_is_constructor {
+          worker_impl_new_intro.push(format!("pub fn new({method_params}) -> (std::thread::JoinHandle<()>, Self) {{"));
+          worker_impl_new_intro.push(format!("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();"));
+          worker_impl_new_intro.push(format!("let {object_name} = {class_name}::new({method_arg_names});"));
+          worker_impl_new_intro.push(format!("let handle = std::thread::spawn(move || {{"));
+          worker_impl_new_intro.push(format!("loop {{"));
+          worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
 
-                worker_impl_new_outro.push(format!(""));
-                worker_impl_new_outro.push(format!("}}"));
-                worker_impl_new_outro.push(format!("}}"));
-                worker_impl_new_outro.push(format!("}});"));
-                worker_impl_new_outro.push(format!("(handle, Self {{send: send_func}})"));
-                worker_impl_new_outro.push(format!("}}"));
-              } else if !method_is_static {
-                if method_is_blocking {
-                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => send_ret.send(Box::new({}.{}({}))).expect(\"Failed to send return value of {} in Worker\"),",
-                    enum_name, enum_arg_names, object_name, method_name, method_arg_names, enum_name
-                  ));
-                } else {
-                  worker_impl_new_match.push(format!("WorkerFuncs::{}({}) => {}.{}({}),",
-                    enum_name, enum_arg_names, object_name, method_name, method_arg_names
-                  ));
-                }
-              }
+          worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
 
-              // Generate Impl ThingyWorker
-              if !method_is_static {
-                worker_impl_output.push(format!("pub {} {{", method_signature));
-                if method_is_blocking {
-                  worker_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{}>>();;", 
-                    method_return_type_str
-                  ));
-                }
-                worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{}({}))).expect(\"Failed to send {} to Worker\");",
-                  enum_name, enum_arg_names, enum_name
-                ));
-                if method_is_blocking {
-                  worker_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
-                  worker_impl_output.push(format!("Ok(x) => *x,"));
-                  worker_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {}\"),", method_name));
-                  worker_impl_output.push(format!("}}"));
-                }
-                worker_impl_output.push(format!("}}"));
-              }
-            }
-            _ => {}
+          worker_impl_new_outro.push(format!(""));
+          worker_impl_new_outro.push(format!("}}"));
+          worker_impl_new_outro.push(format!("}}"));
+          worker_impl_new_outro.push(format!("}});"));
+          worker_impl_new_outro.push(format!("(handle, Self {{send: send_func}})"));
+          worker_impl_new_outro.push(format!("}}"));
+        } else if !method_is_static {
+          if method_is_blocking {
+            worker_impl_new_match.push(format!("WorkerFuncs::{enum_name}({enum_arg_names}) => send_ret.send(Box::new({object_name}.{method_name}({method_arg_names}))).expect(\"Failed to send return value of {enum_name} in Worker\"),"));
+          } else {
+            worker_impl_new_match.push(format!("WorkerFuncs::{enum_name}({enum_arg_names}) => {object_name}.{method_name}({method_arg_names}),"));
           }
         }
-      _ => { println!("INVALID_FUNCTION_TYPE"); }
-    }
-  });
+
+        // Generate Impl ThingyWorker
+        if !method_is_static {
+          worker_impl_output.push(format!("pub {method_signature} {{"));
+          if method_is_blocking {
+            worker_impl_output.push(format!("let (send_ret, recv_ret) = futures::channel::oneshot::channel::<Box<{method_return_type_str}>>();;"));
+          }
+          worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{enum_name}({enum_arg_names}))).expect(\"Failed to send {enum_name} to Worker\");"));
+          if method_is_blocking {
+            worker_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
+            worker_impl_output.push(format!("Ok(x) => *x,"));
+            worker_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {method_name}\"),"));
+            worker_impl_output.push(format!("}}"));
+          }
+          worker_impl_output.push(format!("}}"));
+        }
+      }
+    });
 
     // Generate WorkerFuncs Enum
     funcs_enum_output.push(format!("}}"));
