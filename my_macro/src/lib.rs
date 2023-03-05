@@ -105,33 +105,31 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let object_name = class_name.to_case(Case::Camel);
 
     // Generate Includes
-    let mut includes_output = Vec::new();
-    includes_output.push(format!("use crossbeam_channel;"));
-    includes_output.push(format!("use futures;"));
+    let includes_output = vec![
+        "use crossbeam_channel;".to_string(), 
+        "use futures;".to_string()];
 
     // Generate WorkerFuncs Enum
-    let mut funcs_enum_output = Vec::new();
-    funcs_enum_output.push(format!("enum WorkerFuncs {{"));
-    funcs_enum_output.push(format!("WorkerQuit(),"));
+    let mut funcs_enum_output = vec![
+        "enum WorkerFuncs {".to_string(),
+        "WorkerQuit(),".to_string()];
 
     // Generate Struct Worker
-    let mut worker_struct_output = Vec::new();
-    worker_struct_output.push(format!("#[derive(Clone, Debug)]"));
-    worker_struct_output.push(format!("struct {class_name}Worker {{"));
-    worker_struct_output.push(format!(
-        "send: crossbeam_channel::Sender<Box<WorkerFuncs>>,"
-    ));
-    worker_struct_output.push(format!("}}"));
+    let worker_struct_output = vec![
+        "#[derive(Clone, Debug)]".to_string(),
+        format!("struct {class_name}Worker {{"),
+        "send: crossbeam_channel::Sender<Box<WorkerFuncs>>,".to_string(),
+        "}".to_string()];
 
     // Generate Impl Worker
-    let mut worker_impl_output = Vec::new();
     let mut worker_impl_new_intro = Vec::new();
     let mut worker_impl_new_match = Vec::new();
     let mut worker_impl_new_outro = Vec::new();
-    worker_impl_output.push(format!("impl {class_name}Worker {{"));
-    worker_impl_output.push(format!("pub fn stop_thread(&self) {{"));
-    worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");"));
-    worker_impl_output.push(format!("}}"));
+    let mut worker_impl_output = vec![
+        format!("impl {class_name}Worker {{"),
+        "pub fn stop_thread(&self) {".to_string(),
+        "self.send.send(Box::new(WorkerFuncs::WorkerQuit())).expect(\"Failed to send stop_thread command\");".to_string(),
+        "}".to_string()];
 
     // Check that the class has a public "new" method
     let mut new_exists = false;
@@ -200,20 +198,20 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
         // Generate Impl ThingyWorker
         if method_is_constructor {
           worker_impl_new_intro.push(format!("pub fn new({method_params}) -> (std::thread::JoinHandle<()>, Self) {{"));
-          worker_impl_new_intro.push(format!("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();"));
+          worker_impl_new_intro.push("let (send_func, recv_func) = crossbeam_channel::unbounded::<Box<WorkerFuncs>>();".to_string());
           worker_impl_new_intro.push(format!("let {object_name} = {class_name}::new({method_arg_names});"));
-          worker_impl_new_intro.push(format!("let handle = std::thread::spawn(move || {{"));
-          worker_impl_new_intro.push(format!("loop {{"));
-          worker_impl_new_intro.push(format!("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {{"));
+          worker_impl_new_intro.push("let handle = std::thread::spawn(move || {".to_string());
+          worker_impl_new_intro.push("loop {".to_string());
+          worker_impl_new_intro.push("match *recv_func.recv().expect(\"Error in Worker when receiving message \") {".to_string());
 
-          worker_impl_new_match.push(format!("WorkerFuncs::WorkerQuit() => break,"));
+          worker_impl_new_match.push("WorkerFuncs::WorkerQuit() => break,".to_string());
 
-          worker_impl_new_outro.push(format!(""));
-          worker_impl_new_outro.push(format!("}}"));
-          worker_impl_new_outro.push(format!("}}"));
-          worker_impl_new_outro.push(format!("}});"));
-          worker_impl_new_outro.push(format!("(handle, Self {{send: send_func}})"));
-          worker_impl_new_outro.push(format!("}}"));
+          worker_impl_new_outro.push(String::new());
+          worker_impl_new_outro.push("}".to_string());
+          worker_impl_new_outro.push("}".to_string());
+          worker_impl_new_outro.push("});".to_string());
+          worker_impl_new_outro.push("(handle, Self {send: send_func})".to_string());
+          worker_impl_new_outro.push("}".to_string());
         } else if !method_is_static {
           if method_is_blocking {
             worker_impl_new_match.push(format!("WorkerFuncs::{enum_name}({enum_arg_names}) => send_ret.send(Box::new({object_name}.{method_name}({method_arg_names}))).expect(\"Failed to send return value of {enum_name} in Worker\"),"));
@@ -230,24 +228,24 @@ pub fn worker(_attr: TokenStream, item: TokenStream) -> TokenStream {
           }
           worker_impl_output.push(format!("self.send.send(Box::new(WorkerFuncs::{enum_name}({enum_arg_names}))).expect(\"Failed to send {enum_name} to Worker\");"));
           if method_is_blocking {
-            worker_impl_output.push(format!("match futures::executor::block_on(async move {{ recv_ret.await }}) {{"));
-            worker_impl_output.push(format!("Ok(x) => *x,"));
+            worker_impl_output.push("match futures::executor::block_on(async move { recv_ret.await }) {".to_string());
+            worker_impl_output.push("Ok(x) => *x,".to_string());
             worker_impl_output.push(format!("Err(_) => panic!(\"Error on async await of result in {method_name}\"),"));
-            worker_impl_output.push(format!("}}"));
+            worker_impl_output.push("}".to_string());
           }
-          worker_impl_output.push(format!("}}"));
+          worker_impl_output.push("}".to_string());
         }
       }
     });
 
     // Generate WorkerFuncs Enum
-    funcs_enum_output.push(format!("}}"));
+    funcs_enum_output.push("}".to_string());
 
     // Generate Impl Worker
     worker_impl_output.push(worker_impl_new_intro.join("\n"));
     worker_impl_output.push(worker_impl_new_match.join("\n"));
     worker_impl_output.push(worker_impl_new_outro.join("\n"));
-    worker_impl_output.push(format!("}}"));
+    worker_impl_output.push("}".to_string());
 
     //println!("----------------------------");
 
