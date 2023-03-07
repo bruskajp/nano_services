@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[macro_use]
-extern crate my_macro;
+extern crate nano_services;
 
 #[intro]
 struct Thingy {
